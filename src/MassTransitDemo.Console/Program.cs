@@ -1,5 +1,7 @@
 ﻿using MassTransit;
+using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Core.Transports;
+using MassTransitDemo.Features.BasicMessaging.Handlers;
 using MassTransitDemo.Transports;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -71,6 +73,12 @@ public static class Program
                 
                 services.AddMassTransit(x =>
                 {
+                    // Register basic messaging handlers
+                    x.AddConsumer<CustomerCreatedHandler>();
+                    x.AddConsumer<SendVerificationEmailHandler>();
+                    x.AddConsumer<EmailSentHandler>();
+                    x.AddConsumer<WelcomeEmailSentHandler>();
+
                     transportConfigurator.Configure(x);
                 });
             })
@@ -88,8 +96,8 @@ public static class Program
             System.Console.WriteLine("=== MassTransit Demo Application ===");
             System.Console.WriteLine();
             System.Console.WriteLine("Select a feature to test:");
-            System.Console.WriteLine("1. Basic Messaging (coming in PR 3)");
-            System.Console.WriteLine("2. Handler Chain (coming in PR 3)");
+            System.Console.WriteLine("1. Basic Messaging - Publish CustomerCreated event");
+            System.Console.WriteLine("2. Handler Chain - Trigger CustomerCreated → SendVerificationEmail → EmailSent → WelcomeEmailSent");
             System.Console.WriteLine("3. Error Handling (coming in PR 4)");
             System.Console.WriteLine("4. Retry Mechanism (coming in PR 4)");
             System.Console.WriteLine("5. Transactional Outbox (coming in PR 5)");
@@ -106,7 +114,11 @@ public static class Program
                     logger.LogInformation("Exiting application...");
                     return;
                 case "1":
+                    await HandleBasicMessagingAsync(services, logger);
+                    break;
                 case "2":
+                    await HandleHandlerChainAsync(services, logger);
+                    break;
                 case "3":
                 case "4":
                 case "5":
@@ -124,5 +136,59 @@ public static class Program
                     break;
             }
         }
+    }
+
+    private static async Task HandleBasicMessagingAsync(IServiceProvider services, ILogger logger)
+    {
+        var bus = services.GetRequiredService<IPublishEndpoint>();
+        
+        System.Console.WriteLine();
+        System.Console.WriteLine("=== Basic Messaging Demo ===");
+        System.Console.WriteLine("Publishing CustomerCreated event...");
+        System.Console.WriteLine();
+
+        var customerCreated = new CustomerCreated
+        {
+            CustomerId = Guid.NewGuid(),
+            CustomerName = "John Doe",
+            Email = "john.doe@example.com"
+        };
+
+        await bus.Publish(customerCreated);
+
+        logger.LogInformation("CustomerCreated event published - CustomerId: {CustomerId}", customerCreated.CustomerId);
+        
+        System.Console.WriteLine("Event published! Check the logs above for handler output.");
+        System.Console.WriteLine("Note: This will also trigger the handler chain (CustomerCreated → SendVerificationEmail → ...)");
+        System.Console.WriteLine("Press any key to continue...");
+        System.Console.ReadKey();
+    }
+
+    private static async Task HandleHandlerChainAsync(IServiceProvider services, ILogger logger)
+    {
+        var bus = services.GetRequiredService<IPublishEndpoint>();
+        
+        System.Console.WriteLine();
+        System.Console.WriteLine("=== Handler Chain Demo ===");
+        System.Console.WriteLine("Publishing CustomerCreated event to trigger the chain...");
+        System.Console.WriteLine("Chain: CustomerCreated → SendVerificationEmail → EmailSent → WelcomeEmailSent");
+        System.Console.WriteLine();
+
+        var customerCreated = new CustomerCreated
+        {
+            CustomerId = Guid.NewGuid(),
+            CustomerName = "Jane Smith",
+            Email = "jane.smith@example.com"
+        };
+
+        await bus.Publish(customerCreated);
+
+        logger.LogInformation("CustomerCreated event published to trigger chain - CustomerId: {CustomerId}", customerCreated.CustomerId);
+        
+        System.Console.WriteLine("Chain initiated! Watch the console for each step in the chain.");
+        System.Console.WriteLine("Waiting 2 seconds for chain to complete...");
+        await Task.Delay(2000);
+        System.Console.WriteLine("Press any key to continue...");
+        System.Console.ReadKey();
     }
 }
