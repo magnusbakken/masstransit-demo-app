@@ -6,6 +6,9 @@ using MassTransitDemo.Features.ErrorHandling.Configuration;
 using MassTransitDemo.Features.ErrorHandling.Handlers;
 using MassTransitDemo.Features.Outbox.Data;
 using MassTransitDemo.Features.Outbox.Handlers;
+using MassTransitDemo.Features.Sagas.ConsumerSaga;
+using MassTransitDemo.Features.Sagas.Handlers;
+using MassTransitDemo.Features.Sagas.StateMachineSaga;
 using MassTransitDemo.Transports;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -117,6 +120,17 @@ public static class Program
                     x.AddConsumer<CreateOrderHandler>();
                     x.AddConsumer<OrderCreatedHandler>();
 
+                    // Register saga handlers
+                    x.AddConsumer<ShipmentPreparedHandler>();
+
+                    // Register consumer-based saga
+                    x.AddSaga<ShipmentPreparationSaga>()
+                        .InMemoryRepository();
+
+                    // Register state machine saga
+                    x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>()
+                        .InMemoryRepository();
+
                     // Configure Entity Framework outbox for all endpoints
                     x.AddConfigureEndpointsCallback((context, name, cfg) =>
                     {
@@ -155,7 +169,8 @@ public static class Program
             System.Console.WriteLine("3. Error Handling - ProcessPayment (fails, goes to DLQ)");
             System.Console.WriteLine("4. Retry Mechanism - ProcessOrder (fails first time, succeeds on retry)");
             System.Console.WriteLine("5. Transactional Outbox - CreateOrder (database + event atomically)");
-            System.Console.WriteLine("6. Sagas (coming in PR 6)");
+            System.Console.WriteLine("6. Consumer Saga - Shipment Preparation (OrderConfirmed or InventoryReserved)");
+            System.Console.WriteLine("7. State Machine Saga - Shipment Preparation (OrderConfirmed or InventoryReserved)");
             System.Console.WriteLine("0. Exit");
             System.Console.WriteLine();
             System.Console.Write("Enter your choice: ");
@@ -183,10 +198,10 @@ public static class Program
                     await HandleTransactionalOutboxAsync(services, logger);
                     break;
                 case "6":
-                    System.Console.WriteLine();
-                    System.Console.WriteLine("This feature will be available in a future PR.");
-                    System.Console.WriteLine("Press any key to continue...");
-                    System.Console.ReadKey();
+                    await HandleConsumerSagaAsync(services, logger);
+                    break;
+                case "7":
+                    await HandleStateMachineSagaAsync(services, logger);
                     break;
                 default:
                     System.Console.WriteLine();
@@ -349,6 +364,218 @@ public static class Program
         System.Console.WriteLine("4. Outbox delivery service will deliver event to broker");
         System.Console.WriteLine();
         System.Console.WriteLine("Waiting 3 seconds for outbox delivery...");
+        await Task.Delay(3000);
+        System.Console.WriteLine("Press any key to continue...");
+        System.Console.ReadKey();
+    }
+
+    private static async Task HandleConsumerSagaAsync(IServiceProvider services, ILogger logger)
+    {
+        var bus = services.GetRequiredService<IPublishEndpoint>();
+        
+        System.Console.WriteLine();
+        System.Console.WriteLine("=== Consumer Saga Demo ===");
+        System.Console.WriteLine("This saga can be initiated by either OrderConfirmed or InventoryReserved.");
+        System.Console.WriteLine("It completes when both messages have been received.");
+        System.Console.WriteLine();
+        System.Console.WriteLine("Choose initiation order:");
+        System.Console.WriteLine("1. OrderConfirmed first, then InventoryReserved");
+        System.Console.WriteLine("2. InventoryReserved first, then OrderConfirmed");
+        System.Console.WriteLine("3. Both at the same time");
+        System.Console.Write("Enter your choice (1-3): ");
+
+        var choice = System.Console.ReadLine();
+        var orderId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+
+        switch (choice)
+        {
+            case "1":
+                await bus.Publish(new OrderConfirmed
+                {
+                    OrderId = orderId,
+                    CustomerId = customerId,
+                    ConfirmedAt = DateTime.UtcNow
+                });
+                await Task.Delay(1000);
+                await bus.Publish(new InventoryReserved
+                {
+                    OrderId = orderId,
+                    Items = new List<ReservedItem>
+                    {
+                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+                    },
+                    ReservedAt = DateTime.UtcNow
+                });
+                break;
+            case "2":
+                await bus.Publish(new InventoryReserved
+                {
+                    OrderId = orderId,
+                    Items = new List<ReservedItem>
+                    {
+                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+                    },
+                    ReservedAt = DateTime.UtcNow
+                });
+                await Task.Delay(1000);
+                await bus.Publish(new OrderConfirmed
+                {
+                    OrderId = orderId,
+                    CustomerId = customerId,
+                    ConfirmedAt = DateTime.UtcNow
+                });
+                break;
+            case "3":
+                await Task.WhenAll(
+                    bus.Publish(new OrderConfirmed
+                    {
+                        OrderId = orderId,
+                        CustomerId = customerId,
+                        ConfirmedAt = DateTime.UtcNow
+                    }),
+                    bus.Publish(new InventoryReserved
+                    {
+                        OrderId = orderId,
+                        Items = new List<ReservedItem>
+                        {
+                            new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+                        },
+                        ReservedAt = DateTime.UtcNow
+                    }));
+                break;
+            default:
+                System.Console.WriteLine("Invalid choice. Using default (OrderConfirmed first).");
+                await bus.Publish(new OrderConfirmed
+                {
+                    OrderId = orderId,
+                    CustomerId = customerId,
+                    ConfirmedAt = DateTime.UtcNow
+                });
+                await Task.Delay(1000);
+                await bus.Publish(new InventoryReserved
+                {
+                    OrderId = orderId,
+                    Items = new List<ReservedItem>
+                    {
+                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+                    },
+                    ReservedAt = DateTime.UtcNow
+                });
+                break;
+        }
+
+        logger.LogInformation("Consumer saga demo initiated - OrderId: {OrderId}", orderId);
+        
+        System.Console.WriteLine();
+        System.Console.WriteLine("Events published! Watch the console for saga progression.");
+        System.Console.WriteLine("Waiting 3 seconds for saga to complete...");
+        await Task.Delay(3000);
+        System.Console.WriteLine("Press any key to continue...");
+        System.Console.ReadKey();
+    }
+
+    private static async Task HandleStateMachineSagaAsync(IServiceProvider services, ILogger logger)
+    {
+        var bus = services.GetRequiredService<IPublishEndpoint>();
+        
+        System.Console.WriteLine();
+        System.Console.WriteLine("=== State Machine Saga Demo ===");
+        System.Console.WriteLine("This saga can be initiated by either OrderConfirmed or InventoryReserved.");
+        System.Console.WriteLine("It completes when both messages have been received.");
+        System.Console.WriteLine();
+        System.Console.WriteLine("Choose initiation order:");
+        System.Console.WriteLine("1. OrderConfirmed first, then InventoryReserved");
+        System.Console.WriteLine("2. InventoryReserved first, then OrderConfirmed");
+        System.Console.WriteLine("3. Both at the same time");
+        System.Console.Write("Enter your choice (1-3): ");
+
+        var choice = System.Console.ReadLine();
+        var orderId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+
+        switch (choice)
+        {
+            case "1":
+                await bus.Publish(new OrderConfirmed
+                {
+                    OrderId = orderId,
+                    CustomerId = customerId,
+                    ConfirmedAt = DateTime.UtcNow
+                });
+                await Task.Delay(1000);
+                await bus.Publish(new InventoryReserved
+                {
+                    OrderId = orderId,
+                    Items = new List<ReservedItem>
+                    {
+                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+                    },
+                    ReservedAt = DateTime.UtcNow
+                });
+                break;
+            case "2":
+                await bus.Publish(new InventoryReserved
+                {
+                    OrderId = orderId,
+                    Items = new List<ReservedItem>
+                    {
+                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+                    },
+                    ReservedAt = DateTime.UtcNow
+                });
+                await Task.Delay(1000);
+                await bus.Publish(new OrderConfirmed
+                {
+                    OrderId = orderId,
+                    CustomerId = customerId,
+                    ConfirmedAt = DateTime.UtcNow
+                });
+                break;
+            case "3":
+                await Task.WhenAll(
+                    bus.Publish(new OrderConfirmed
+                    {
+                        OrderId = orderId,
+                        CustomerId = customerId,
+                        ConfirmedAt = DateTime.UtcNow
+                    }),
+                    bus.Publish(new InventoryReserved
+                    {
+                        OrderId = orderId,
+                        Items = new List<ReservedItem>
+                        {
+                            new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+                        },
+                        ReservedAt = DateTime.UtcNow
+                    }));
+                break;
+            default:
+                System.Console.WriteLine("Invalid choice. Using default (OrderConfirmed first).");
+                await bus.Publish(new OrderConfirmed
+                {
+                    OrderId = orderId,
+                    CustomerId = customerId,
+                    ConfirmedAt = DateTime.UtcNow
+                });
+                await Task.Delay(1000);
+                await bus.Publish(new InventoryReserved
+                {
+                    OrderId = orderId,
+                    Items = new List<ReservedItem>
+                    {
+                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+                    },
+                    ReservedAt = DateTime.UtcNow
+                });
+                break;
+        }
+
+        logger.LogInformation("State machine saga demo initiated - OrderId: {OrderId}", orderId);
+        
+        System.Console.WriteLine();
+        System.Console.WriteLine("Events published! Watch the console for saga state transitions.");
+        System.Console.WriteLine("Waiting 3 seconds for saga to complete...");
         await Task.Delay(3000);
         System.Console.WriteLine("Press any key to continue...");
         System.Console.ReadKey();
