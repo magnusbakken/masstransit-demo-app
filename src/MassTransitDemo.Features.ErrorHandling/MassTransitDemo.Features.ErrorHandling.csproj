@@ -2,16 +2,15 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MassTransitDemo.Core\MassTransitDemo.Core.csproj" />
-    <ProjectReference Include="..\MassTransitDemo.Features.ErrorHandling\MassTransitDemo.Features.ErrorHandling.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="MassTransit" />
     <PackageReference Include="MassTransit.Azure.ServiceBus.Core" />
-    <PackageReference Include="MassTransit.RabbitMQ" />
-    <PackageReference Include="MassTransit.SqlTransport.PostgreSQL" />
   </ItemGroup>
 
   <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>

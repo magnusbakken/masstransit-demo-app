@@ -1,5 +1,6 @@
 using MassTransit;
 using MassTransitDemo.Core.Transports;
+using MassTransitDemo.Features.ErrorHandling.Configuration;
 
 namespace MassTransitDemo.Transports;
 
