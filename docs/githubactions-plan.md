@@ -1,0 +1,1 @@
+Add GitHub Actions support for the project. The action should build and test the project. The action should be configured so it runs on every pull request build, and as a requirement for PRs to be merged. As far as possible, use the GitHub CLI to automatically configure these things, but let me know what I have to configure manually, if there is anything.

@@ -1,9 +1,9 @@
 using FakeItEasy;
 using MassTransit;
-using MassTransit.Testing;
 using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Features.BasicMessaging.Handlers;
 using Microsoft.Extensions.Logging;
+using TUnit.Framework;
 
 namespace MassTransitDemo.Tests.BasicMessaging.Handlers;
 
