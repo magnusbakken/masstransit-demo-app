@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  
+  <ItemGroup>
+    <!-- MassTransit packages will be added in PR 2 -->
+  </ItemGroup>
+</Project>
