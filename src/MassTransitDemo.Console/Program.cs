@@ -2,7 +2,6 @@
 using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Core.Transports;
 using MassTransitDemo.Features.BasicMessaging.Handlers;
-using MassTransitDemo.Features.ErrorHandling.Configuration;
 using MassTransitDemo.Features.ErrorHandling.Handlers;
 using MassTransitDemo.Features.Outbox.Data;
 using MassTransitDemo.Features.Outbox.Handlers;
@@ -23,10 +22,10 @@ public static class Program
     public static async Task Main(string[] args)
     {
         var host = CreateHostBuilder(args).Build();
-        
+
         var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MassTransitDemo");
         logger.LogInformation("MassTransit Demo Application starting...");
-        logger.LogInformation("Transport: {TransportType}", 
+        logger.LogInformation("Transport: {TransportType}",
             host.Services.GetRequiredService<IConfiguration>()
                 .GetSection("Transport")["TransportType"]);
 
@@ -69,7 +68,7 @@ public static class Program
                 services.AddSingleton(transportOptions);
 
                 // Configure Entity Framework Core for transactional outbox
-                var postgresConnectionString = transportOptions.PostgreSQLConnectionString 
+                var postgresConnectionString = transportOptions.PostgreSQLConnectionString
                     ?? "Host=localhost;Port=5432;Database=masstransit_demo;Username=masstransit;Password=masstransit";
 
                 services.AddDbContext<OutboxDbContext>(options =>
@@ -79,7 +78,7 @@ public static class Program
 
                 // Create and configure transport
                 var transportConfigurator = TransportConfiguratorFactory.Create(transportOptions);
-                
+
                 // Configure MassTransit with Entity Framework outbox
                 services.AddMassTransit(x =>
                 {
@@ -138,12 +137,16 @@ public static class Program
                     });
 
                     // Configure Azure Service Bus native DLQ if enabled
-                    if (transportOptions.TransportType == TransportType.AzureServiceBus && 
+                    if (transportOptions.TransportType == TransportType.AzureServiceBus &&
                         transportOptions.UseAzureServiceBusNativeDlq)
                     {
                         x.AddConfigureEndpointsCallback((_, name, cfg) =>
                         {
-                            ErrorHandlingConfiguration.ConfigureAzureServiceBusDeadLetterQueue(cfg, useNativeDlq: true);
+                            if (cfg is IServiceBusReceiveEndpointConfigurator sb)
+                            {
+                                sb.ConfigureDeadLetterQueueDeadLetterTransport();
+                                sb.ConfigureDeadLetterQueueErrorTransport();
+                            }
                         });
                     }
 
@@ -216,7 +219,7 @@ public static class Program
     private static async Task HandleBasicMessagingAsync(IServiceProvider services, ILogger logger)
     {
         var bus = services.GetRequiredService<IPublishEndpoint>();
-        
+
         System.Console.WriteLine();
         System.Console.WriteLine("=== Basic Messaging Demo ===");
         System.Console.WriteLine("Publishing CustomerCreated event...");
@@ -232,7 +235,7 @@ public static class Program
         await bus.Publish(customerCreated);
 
         logger.LogInformation("CustomerCreated event published - CustomerId: {CustomerId}", customerCreated.CustomerId);
-        
+
         System.Console.WriteLine("Event published! Check the logs above for handler output.");
         System.Console.WriteLine("Note: This will also trigger the handler chain (CustomerCreated → SendVerificationEmail → ...)");
         System.Console.WriteLine("Press any key to continue...");
@@ -242,7 +245,7 @@ public static class Program
     private static async Task HandleHandlerChainAsync(IServiceProvider services, ILogger logger)
     {
         var bus = services.GetRequiredService<IPublishEndpoint>();
-        
+
         System.Console.WriteLine();
         System.Console.WriteLine("=== Handler Chain Demo ===");
         System.Console.WriteLine("Publishing CustomerCreated event to trigger the chain...");
@@ -259,7 +262,7 @@ public static class Program
         await bus.Publish(customerCreated);
 
         logger.LogInformation("CustomerCreated event published to trigger chain - CustomerId: {CustomerId}", customerCreated.CustomerId);
-        
+
         System.Console.WriteLine("Chain initiated! Watch the console for each step in the chain.");
         System.Console.WriteLine("Waiting 2 seconds for chain to complete...");
         await Task.Delay(2000);
@@ -270,7 +273,7 @@ public static class Program
     private static async Task HandleErrorHandlingAsync(IServiceProvider services, ILogger logger)
     {
         var bus = services.GetRequiredService<IPublishEndpoint>();
-        
+
         System.Console.WriteLine();
         System.Console.WriteLine("=== Error Handling Demo ===");
         System.Console.WriteLine("Publishing ProcessPayment command that will fail...");
@@ -288,7 +291,7 @@ public static class Program
         await bus.Publish(processPayment);
 
         logger.LogInformation("ProcessPayment command published - PaymentId: {PaymentId}", processPayment.PaymentId);
-        
+
         System.Console.WriteLine("Command published! The handler will fail and the message will be moved to DLQ.");
         System.Console.WriteLine("Check your transport's dead-letter queue to see the failed message.");
         System.Console.WriteLine("Press any key to continue...");
@@ -298,7 +301,7 @@ public static class Program
     private static async Task HandleRetryMechanismAsync(IServiceProvider services, ILogger logger)
     {
         var bus = services.GetRequiredService<IPublishEndpoint>();
-        
+
         System.Console.WriteLine();
         System.Console.WriteLine("=== Retry Mechanism Demo ===");
         System.Console.WriteLine("Publishing ProcessOrder command that will fail first time, succeed on retry...");
@@ -315,7 +318,7 @@ public static class Program
         await bus.Publish(processOrder);
 
         logger.LogInformation("ProcessOrder command published - OrderId: {OrderId}", processOrder.OrderId);
-        
+
         System.Console.WriteLine("Command published! Watch for:");
         System.Console.WriteLine("1. First attempt will fail (intentional)");
         System.Console.WriteLine("2. Automatic retry with exponential backoff");
@@ -331,7 +334,7 @@ public static class Program
     {
         var bus = services.GetRequiredService<IPublishEndpoint>();
         var dbContext = services.GetRequiredService<OutboxDbContext>();
-        
+
         System.Console.WriteLine();
         System.Console.WriteLine("=== Transactional Outbox Demo ===");
         System.Console.WriteLine("Publishing CreateOrder command...");
@@ -356,7 +359,7 @@ public static class Program
         await bus.Publish(createOrder);
 
         logger.LogInformation("CreateOrder command published - OrderId: {OrderId}", createOrder.OrderId);
-        
+
         System.Console.WriteLine("Command published! The handler will:");
         System.Console.WriteLine("1. Create order in database");
         System.Console.WriteLine("2. Publish OrderCreated event (stored in outbox)");
@@ -372,7 +375,7 @@ public static class Program
     private static async Task HandleConsumerSagaAsync(IServiceProvider services, ILogger logger)
     {
         var bus = services.GetRequiredService<IPublishEndpoint>();
-        
+
         System.Console.WriteLine();
         System.Console.WriteLine("=== Consumer Saga Demo ===");
         System.Console.WriteLine("This saga can be initiated by either OrderConfirmed or InventoryReserved.");
@@ -466,7 +469,7 @@ public static class Program
         }
 
         logger.LogInformation("Consumer saga demo initiated - OrderId: {OrderId}", orderId);
-        
+
         System.Console.WriteLine();
         System.Console.WriteLine("Events published! Watch the console for saga progression.");
         System.Console.WriteLine("Waiting 3 seconds for saga to complete...");
@@ -478,7 +481,7 @@ public static class Program
     private static async Task HandleStateMachineSagaAsync(IServiceProvider services, ILogger logger)
     {
         var bus = services.GetRequiredService<IPublishEndpoint>();
-        
+
         System.Console.WriteLine();
         System.Console.WriteLine("=== State Machine Saga Demo ===");
         System.Console.WriteLine("This saga can be initiated by either OrderConfirmed or InventoryReserved.");
@@ -572,7 +575,7 @@ public static class Program
         }
 
         logger.LogInformation("State machine saga demo initiated - OrderId: {OrderId}", orderId);
-        
+
         System.Console.WriteLine();
         System.Console.WriteLine("Events published! Watch the console for saga state transitions.");
         System.Console.WriteLine("Waiting 3 seconds for saga to complete...");
