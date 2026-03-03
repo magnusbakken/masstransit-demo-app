@@ -1,17 +1,16 @@
+using FakeItEasy;
 using MassTransit;
 using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Features.Outbox.Data;
 using MassTransitDemo.Features.Outbox.Handlers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using Moq;
-using Xunit;
 
 namespace MassTransitDemo.Tests.Outbox.Handlers;
 
 public sealed class CreateOrderHandlerTests
 {
-    [Fact]
+    [Test]
     public async Task Consume_CreateOrderCommand_AddsOrderToDatabase()
     {
         // Arrange
@@ -20,10 +19,10 @@ public sealed class CreateOrderHandlerTests
             .Options;
 
         using var dbContext = new OutboxDbContext(options);
-        var loggerMock = new Mock<ILogger<CreateOrderHandler>>();
-        var publishEndpointMock = new Mock<IPublishEndpoint>();
+        var loggerFake = A.Fake<ILogger<CreateOrderHandler>>();
+        var publishEndpointFake = A.Fake<IPublishEndpoint>();
 
-        var handler = new CreateOrderHandler(dbContext, loggerMock.Object, publishEndpointMock.Object);
+        var handler = new CreateOrderHandler(dbContext, loggerFake, publishEndpointFake);
 
         var message = new CreateOrder
         {
@@ -36,20 +35,22 @@ public sealed class CreateOrderHandlerTests
             }
         };
 
-        var context = Mock.Of<ConsumeContext<CreateOrder>>(c => c.Message == message);
+        var context = A.Fake<ConsumeContext<CreateOrder>>();
+        A.CallTo(() => context.Message).Returns(message);
 
         // Act
         await handler.Consume(context);
 
         // Assert
         var order = await dbContext.Orders.FirstOrDefaultAsync(o => o.OrderId == message.OrderId);
-        Assert.NotNull(order);
-        Assert.Equal(message.OrderId, order.OrderId);
-        Assert.Equal(message.CustomerId, order.CustomerId);
-        Assert.Equal(message.TotalAmount, order.TotalAmount);
+        await Assert.That(order).IsNotNull();
+        await Assert.That(order!.OrderId).IsEqualTo(message.OrderId);
+        await Assert.That(order.CustomerId).IsEqualTo(message.CustomerId);
+        await Assert.That(order.TotalAmount).IsEqualTo(message.TotalAmount);
 
-        publishEndpointMock.Verify(
-            x => x.Publish(It.Is<OrderCreated>(m => m.OrderId == message.OrderId), It.IsAny<CancellationToken>()),
-            Times.Once);
+        A.CallTo(() => publishEndpointFake.Publish(
+                A<OrderCreated>.That.Matches(m => m.OrderId == message.OrderId),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
     }
 }

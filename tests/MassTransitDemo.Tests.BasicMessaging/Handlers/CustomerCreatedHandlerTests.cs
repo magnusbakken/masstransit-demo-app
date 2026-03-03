@@ -1,22 +1,21 @@
+using FakeItEasy;
 using MassTransit;
 using MassTransit.Testing;
 using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Features.BasicMessaging.Handlers;
 using Microsoft.Extensions.Logging;
-using Moq;
-using Xunit;
 
 namespace MassTransitDemo.Tests.BasicMessaging.Handlers;
 
 public sealed class CustomerCreatedHandlerTests
 {
-    [Fact]
+    [Test]
     public async Task Consume_CustomerCreatedEvent_LogsInformation()
     {
         // Arrange
-        var loggerMock = new Mock<ILogger<CustomerCreatedHandler>>();
-        var publishEndpointMock = new Mock<IPublishEndpoint>();
-        var handler = new CustomerCreatedHandler(loggerMock.Object, publishEndpointMock.Object);
+        var loggerFake = A.Fake<ILogger<CustomerCreatedHandler>>();
+        var publishEndpointFake = A.Fake<IPublishEndpoint>();
+        var handler = new CustomerCreatedHandler(loggerFake, publishEndpointFake);
 
         var message = new CustomerCreated
         {
@@ -25,23 +24,26 @@ public sealed class CustomerCreatedHandlerTests
             Email = "test@example.com"
         };
 
-        var context = Mock.Of<ConsumeContext<CustomerCreated>>(c => c.Message == message);
+        var context = A.Fake<ConsumeContext<CustomerCreated>>();
+        A.CallTo(() => context.Message).Returns(message);
 
         // Act
         await handler.Consume(context);
 
         // Assert
-        loggerMock.Verify(
-            x => x.Log(
+        A.CallTo(() => loggerFake.Log(
                 LogLevel.Information,
-                It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("CustomerCreated event received")),
-                It.IsAny<Exception>(),
-                It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
-            Times.Once);
+                A<EventId>._,
+                A<object>._,
+                A<Exception?>._,
+                A<Func<object, Exception?, string>>._))
+            .WhenArgumentsMatch((LogLevel level, EventId eventId, object state, Exception? ex, Func<object, Exception?, string> formatter) =>
+                state.ToString()!.Contains("CustomerCreated event received"))
+            .MustHaveHappenedOnceExactly();
 
-        publishEndpointMock.Verify(
-            x => x.Publish(It.Is<SendVerificationEmail>(m => m.CustomerId == message.CustomerId), It.IsAny<CancellationToken>()),
-            Times.Once);
+        A.CallTo(() => publishEndpointFake.Publish(
+                A<SendVerificationEmail>.That.Matches(m => m.CustomerId == message.CustomerId),
+                A<CancellationToken>._))
+            .MustHaveHappenedOnceExactly();
     }
 }

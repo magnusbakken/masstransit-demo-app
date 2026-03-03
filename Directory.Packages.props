@@ -25,11 +25,8 @@
         <!-- PostgreSQL -->
         <PackageVersion Include="Npgsql" Version="9.0.2" />
         <!-- Testing -->
-        <PackageVersion Include="coverlet.collector" Version="6.0.4" />
-        <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
         <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
-        <PackageVersion Include="xunit" Version="2.9.3" />
-        <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
-        <PackageVersion Include="Moq" Version="4.20.72" />
+        <PackageVersion Include="TUnit" Version="0.30.0" />
+        <PackageVersion Include="FakeItEasy" Version="8.3.0" />
     </ItemGroup>
 </Project>
