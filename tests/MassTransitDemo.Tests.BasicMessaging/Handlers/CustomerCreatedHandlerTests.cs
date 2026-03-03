@@ -1,6 +1,5 @@
 using FakeItEasy;
 using MassTransit;
-using MassTransit.Testing;
 using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Features.BasicMessaging.Handlers;
 using Microsoft.Extensions.Logging;
