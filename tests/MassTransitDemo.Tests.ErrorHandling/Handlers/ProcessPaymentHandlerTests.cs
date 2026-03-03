@@ -1,20 +1,19 @@
+using FakeItEasy;
 using MassTransit;
 using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Features.ErrorHandling.Handlers;
 using Microsoft.Extensions.Logging;
-using Moq;
-using Xunit;
 
 namespace MassTransitDemo.Tests.ErrorHandling.Handlers;
 
 public sealed class ProcessPaymentHandlerTests
 {
-    [Fact]
+    [Test]
     public async Task Consume_ProcessPaymentCommand_ThrowsException()
     {
         // Arrange
-        var loggerMock = new Mock<ILogger<ProcessPaymentHandler>>();
-        var handler = new ProcessPaymentHandler(loggerMock.Object);
+        var loggerFake = A.Fake<ILogger<ProcessPaymentHandler>>();
+        var handler = new ProcessPaymentHandler(loggerFake);
 
         var message = new ProcessPayment
         {
@@ -24,9 +23,10 @@ public sealed class ProcessPaymentHandlerTests
             PaymentMethod = "Credit Card"
         };
 
-        var context = Mock.Of<ConsumeContext<ProcessPayment>>(c => c.Message == message);
+        var context = A.Fake<ConsumeContext<ProcessPayment>>();
+        A.CallTo(() => context.Message).Returns(message);
 
         // Act & Assert
-        await Assert.ThrowsAsync<InvalidOperationException>(() => handler.Consume(context));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await handler.Consume(context));
     }
 }

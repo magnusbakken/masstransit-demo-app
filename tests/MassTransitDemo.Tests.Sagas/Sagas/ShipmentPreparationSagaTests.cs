@@ -1,15 +1,14 @@
+using FakeItEasy;
 using MassTransit;
 using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Features.Sagas.ConsumerSaga;
 using Microsoft.Extensions.Logging;
-using Moq;
-using Xunit;
 
 namespace MassTransitDemo.Tests.Sagas.Sagas;
 
 public sealed class ShipmentPreparationSagaTests
 {
-    [Fact]
+    [Test]
     public async Task Consume_OrderConfirmed_UpdatesSagaState()
     {
         // Arrange
@@ -21,19 +20,20 @@ public sealed class ShipmentPreparationSagaTests
             ConfirmedAt = DateTime.UtcNow
         };
 
-        var context = Mock.Of<ConsumeContext<OrderConfirmed>>(c => c.Message == message);
+        var context = A.Fake<ConsumeContext<OrderConfirmed>>();
+        A.CallTo(() => context.Message).Returns(message);
 
         // Act
         await saga.Consume(context);
 
         // Assert
-        Assert.Equal(message.OrderId, saga.CorrelationId);
-        Assert.True(saga.OrderConfirmed);
-        Assert.Equal(message.CustomerId, saga.CustomerId);
-        Assert.Equal(message.ConfirmedAt, saga.ConfirmedAt);
+        await Assert.That(saga.CorrelationId).IsEqualTo(message.OrderId);
+        await Assert.That(saga.OrderConfirmed).IsTrue();
+        await Assert.That(saga.CustomerId).IsEqualTo(message.CustomerId);
+        await Assert.That(saga.ConfirmedAt).IsEqualTo(message.ConfirmedAt);
     }
 
-    [Fact]
+    [Test]
     public async Task Consume_InventoryReserved_UpdatesSagaState()
     {
         // Arrange
@@ -48,14 +48,15 @@ public sealed class ShipmentPreparationSagaTests
             ReservedAt = DateTime.UtcNow
         };
 
-        var context = Mock.Of<ConsumeContext<InventoryReserved>>(c => c.Message == message);
+        var context = A.Fake<ConsumeContext<InventoryReserved>>();
+        A.CallTo(() => context.Message).Returns(message);
 
         // Act
         await saga.Consume(context);
 
         // Assert
-        Assert.Equal(message.OrderId, saga.CorrelationId);
-        Assert.True(saga.InventoryReserved);
-        Assert.Equal(message.ReservedAt, saga.ReservedAt);
+        await Assert.That(saga.CorrelationId).IsEqualTo(message.OrderId);
+        await Assert.That(saga.InventoryReserved).IsTrue();
+        await Assert.That(saga.ReservedAt).IsEqualTo(message.ReservedAt);
     }
 }

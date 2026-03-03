@@ -1,0 +1,22 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/src/">
+    <Project Path="src/MassTransitDemo.Console/MassTransitDemo.Console.csproj" />
+    <Project Path="src/MassTransitDemo.Core/MassTransitDemo.Core.csproj" />
+    <Project Path="src/MassTransitDemo.Features.BasicMessaging/MassTransitDemo.Features.BasicMessaging.csproj" />
+    <Project Path="src/MassTransitDemo.Features.ErrorHandling/MassTransitDemo.Features.ErrorHandling.csproj" />
+    <Project Path="src/MassTransitDemo.Features.Outbox/MassTransitDemo.Features.Outbox.csproj" />
+    <Project Path="src/MassTransitDemo.Features.Sagas/MassTransitDemo.Features.Sagas.csproj" />
+    <Project Path="src/MassTransitDemo.Transports/MassTransitDemo.Transports.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MassTransitDemo.Tests.BasicMessaging/MassTransitDemo.Tests.BasicMessaging.csproj" />
+    <Project Path="tests/MassTransitDemo.Tests.ErrorHandling/MassTransitDemo.Tests.ErrorHandling.csproj" />
+    <Project Path="tests/MassTransitDemo.Tests.Outbox/MassTransitDemo.Tests.Outbox.csproj" />
+    <Project Path="tests/MassTransitDemo.Tests.Sagas/MassTransitDemo.Tests.Sagas.csproj" />
+  </Folder>
+</Solution>

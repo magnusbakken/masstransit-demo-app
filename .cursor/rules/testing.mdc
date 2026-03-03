@@ -1,5 +1,5 @@
 ---
-description: This file provides guidelines for writing effective, maintainable tests using xUnit and related tools.
+description: This file provides guidelines for writing effective, maintainable tests using TUnit and FakeItEasy.
 globs: *.cs, *.Tests.csproj
 ---
 Role Definition:
@@ -10,10 +10,11 @@ Role Definition:
 General:
   Description: >
     Tests should be reliable, maintainable, and provide meaningful coverage.
-    Use xUnit as the primary testing framework, with proper isolation and
+    Use TUnit as the primary testing framework and FakeItEasy for mocking, with proper isolation and
     clear patterns for test organization and execution.
   Requirements:
-    - Use xUnit as the testing framework
+    - Use TUnit as the testing framework
+    - Use FakeItEasy for creating fakes/mocks
     - Ensure test isolation
     - Follow consistent patterns
     - Maintain high code coverage
@@ -24,39 +25,28 @@ Project Setup:
       ```xml
       <Project Sdk="Microsoft.NET.Sdk">
         <PropertyGroup>
-          <TargetFramework>net10.0</TargetFramework>
           <IsPackable>false</IsPackable>
-          <IsTestProject>true</IsTestProject>
-          <CollectCoverage>true</CollectCoverage>
-          <CoverletOutputFormat>cobertura</CoverletOutputFormat>
         </PropertyGroup>
         
         <ItemGroup>
-          <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
-          <PackageReference Include="xunit" Version="2.6.2" />
-          <PackageReference Include="xunit.runner.visualstudio" Version="2.5.4" />
-          <PackageReference Include="coverlet.collector" Version="6.0.0" />
-          <PackageReference Include="coverlet.msbuild" Version="6.0.0" />
+          <PackageReference Include="TUnit" />
+          <PackageReference Include="FakeItEasy" />
         </ItemGroup>
       </Project>
       ```
+    - Note: TUnit includes built-in code coverage support via `--coverage` flag. Do NOT use coverlet.collector or Microsoft.NET.Test.Sdk as they are incompatible with TUnit.
 
 Test Class Structure:
-  - Use ITestOutputHelper for logging:
+  - TUnit automatically provides global usings for common namespaces, so no explicit using statements needed for:
+    - `TUnit.Core` (for `[Test]` attribute)
+    - `TUnit.Assertions` (for `Assert.That()`)
+  - Simple test class structure:
       ```csharp
       public class OrderProcessingTests
       {
-          private readonly ITestOutputHelper _output;
-          
-          public OrderProcessingTests(ITestOutputHelper output)
-          {
-              _output = output;
-          }
-          
-          [Fact]
+          [Test]
           public async Task ProcessOrder_ValidOrder_Succeeds()
           {
-              _output.WriteLine("Starting test with valid order");
               // Test implementation
           }
       }
@@ -79,35 +69,41 @@ Test Class Structure:
           }
       }
       
-      public class OrderTests : IClassFixture<DatabaseFixture>
+      public class OrderTests
       {
           private readonly DatabaseFixture _fixture;
-          private readonly ITestOutputHelper _output;
           
-          public OrderTests(DatabaseFixture fixture, ITestOutputHelper output)
+          public OrderTests()
           {
-              _fixture = fixture;
-              _output = output;
+              _fixture = new DatabaseFixture();
+          }
+          
+          [Test]
+          public async Task ProcessOrder_ValidOrder_Succeeds()
+          {
+              await _fixture.InitializeAsync();
+              try
+              {
+                  // Test implementation
+              }
+              finally
+              {
+                  await _fixture.DisposeAsync();
+              }
           }
       }
       ```
 
 Test Methods:
-  - Prefer Theory over multiple Facts:
+  - Use [Test] attribute instead of [Fact]:
       ```csharp
       public class DiscountCalculatorTests
       {
-          public static TheoryData<decimal, int, decimal> DiscountTestData => 
-              new()
-              {
-                  { 100m, 1, 0m },      // No discount for single item
-                  { 100m, 5, 5m },      // 5% for 5 items
-                  { 100m, 10, 10m },    // 10% for 10 items
-              };
-          
-          [Theory]
-          [MemberData(nameof(DiscountTestData))]
-          public void CalculateDiscount_ReturnsCorrectAmount(
+          [Test]
+          [Arguments(100m, 1, 0m)]      // No discount for single item
+          [Arguments(100m, 5, 5m)]       // 5% for 5 items
+          [Arguments(100m, 10, 10m)]     // 10% for 10 items
+          public async Task CalculateDiscount_ReturnsCorrectAmount(
               decimal price,
               int quantity,
               decimal expectedDiscount)
@@ -119,31 +115,31 @@ Test Methods:
               var discount = calculator.Calculate(price, quantity);
               
               // Assert
-              Assert.Equal(expectedDiscount, discount);
+              await Assert.That(discount).IsEqualTo(expectedDiscount);
           }
       }
       ```
   - Follow Arrange-Act-Assert pattern:
       ```csharp
-      [Fact]
+      [Test]
       public async Task ProcessOrder_ValidOrder_UpdatesInventory()
       {
           // Arrange
           var order = new Order(
               OrderId.New(),
               new[] { new OrderLine("SKU123", 5) });
-          var processor = new OrderProcessor(_mockRepository.Object);
+          var repositoryFake = A.Fake<IRepository>();
+          var processor = new OrderProcessor(repositoryFake);
           
           // Act
           var result = await processor.ProcessAsync(order);
           
           // Assert
-          Assert.True(result.IsSuccess);
-          _mockRepository.Verify(
-              r => r.UpdateInventoryAsync(
-                  It.IsAny<string>(),
-                  It.IsAny<int>()),
-              Times.Once);
+          await Assert.That(result.IsSuccess).IsTrue();
+          A.CallTo(() => repositoryFake.UpdateInventoryAsync(
+                  A<string>._,
+                  A<int>._))
+              .MustHaveHappenedOnceExactly();
       }
       ```
 
@@ -155,7 +151,7 @@ Test Isolation:
           private static Order CreateTestOrder() =>
               new(OrderId.New(), TestData.CreateOrderLines());
               
-          [Fact]
+          [Test]
           public async Task ProcessOrder_Success()
           {
               var order = CreateTestOrder();
@@ -185,32 +181,14 @@ Test Isolation:
       ```
 
 CI/CD Configuration:
-  - Configure test runs:
+  - Configure test runs with TUnit:
       ```yaml
       - name: Test
         run: |
-          dotnet test --configuration Release \
-                      --collect:"XPlat Code Coverage" \
-                      --logger:trx \
-                      --results-directory ./coverage
-      
-      - name: Upload coverage
-        uses: actions/upload-artifact@v3
-        with:
-          name: coverage-results
-          path: coverage/**
+          dotnet run --configuration Release --coverage --report-trx
       ```
-  - Enable code coverage:
-      ```xml
-      <PropertyGroup>
-        <CollectCoverage>true</CollectCoverage>
-        <CoverletOutputFormat>cobertura</CoverletOutputFormat>
-        <CoverletOutput>./coverage/</CoverletOutput>
-        <ThresholdType>line,branch,method</ThresholdType>
-        <ThresholdStat>total</ThresholdStat>
-        <Threshold>80</Threshold>
-      </PropertyGroup>
-      ```
+    - TUnit includes built-in code coverage (via `--coverage` flag) and TRX report generation (via `--report-trx` flag)
+    - No need for separate coverlet packages or Microsoft.NET.Test.Sdk
 
 Integration Testing:
   - Always use TestContainers for infrastructure:
@@ -309,32 +287,49 @@ Integration Testing:
       // Avoid: Mocking database
       public class DatabaseTests
       {
-          private readonly Mock<IDbConnection> _mockDb = new();
+          private readonly IDbConnection _fakeDb = A.Fake<IDbConnection>();
           
-          [Fact]
+          [Test]
           public async Task Test_WithMockedDb()
           {
-              _mockDb.Setup(db => db.QueryAsync<Order>())
-                  .ReturnsAsync(new[] { new Order() });
+              A.CallTo(() => _fakeDb.QueryAsync<Order>())
+                  .Returns(new[] { new Order() });
               // Test with mocked database - can miss real database behavior
           }
       }
       
       // Good: Real database in container
-      public class DatabaseTests : IAsyncLifetime
+      public class DatabaseTests
       {
           private readonly TestcontainersContainer _dbContainer;
           private IDbConnection _db;
           
-          // ... TestContainers setup as shown above ...
+          public DatabaseTests()
+          {
+              _dbContainer = new TestcontainersBuilder<TestcontainersContainer>()
+                  .WithImage("mcr.microsoft.com/mssql/server:2022-latest")
+                  .Build();
+          }
           
-          [Fact]
+          [Test]
           public async Task Test_WithRealDb()
           {
-              // Test with real database in container
-              var order = await _db.QuerySingleAsync<Order>(
-                  "SELECT * FROM Orders WHERE Id = @Id",
-                  new { Id = 1 });
+              await _dbContainer.StartAsync();
+              try
+              {
+                  _db = new SqlConnection("connection-string");
+                  await _db.OpenAsync();
+                  
+                  // Test with real database in container
+                  var order = await _db.QuerySingleAsync<Order>(
+                      "SELECT * FROM Orders WHERE Id = @Id",
+                      new { Id = 1 });
+              }
+              finally
+              {
+                  await _db.DisposeAsync();
+                  await _dbContainer.DisposeAsync();
+              }
           }
       }
       ```
@@ -386,54 +381,55 @@ Best Practices:
   - Name tests clearly:
       ```csharp
       // Good: Clear test names
-      [Fact]
+      [Test]
       public async Task ProcessOrder_WhenInventoryAvailable_UpdatesStockAndReturnsSuccess()
       
       // Avoid: Unclear names
-      [Fact]
+      [Test]
       public async Task TestProcessOrder()
       ```
-  - Use meaningful assertions:
+  - Use meaningful assertions with TUnit:
       ```csharp
       // Good: Clear assertions
-      Assert.Equal(expected, actual);
-      Assert.Contains(expectedItem, collection);
-      Assert.Throws<OrderException>(() => processor.Process(invalidOrder));
+      await Assert.That(actual).IsEqualTo(expected);
+      await Assert.That(collection).Contains(expectedItem);
+      await Assert.That(() => processor.Process(invalidOrder))
+          .Throws<OrderException>();
       
       // Avoid: Multiple assertions without context
-      Assert.NotNull(result);
-      Assert.True(result.Success);
-      Assert.Equal(0, result.Errors.Count);
+      await Assert.That(result).IsNotNull();
+      await Assert.That(result.Success).IsTrue();
+      await Assert.That(result.Errors.Count).IsEqualTo(0);
       ```
   - Handle async operations properly:
       ```csharp
       // Good: Async test method
-      [Fact]
+      [Test]
       public async Task ProcessOrder_ValidOrder_Succeeds()
       {
           await using var processor = new OrderProcessor();
           var result = await processor.ProcessAsync(order);
-          Assert.True(result.IsSuccess);
+          await Assert.That(result.IsSuccess).IsTrue();
       }
       
       // Avoid: Sync over async
-      [Fact]
+      [Test]
       public void ProcessOrder_ValidOrder_Succeeds()
       {
           using var processor = new OrderProcessor();
           var result = processor.ProcessAsync(order).Result;  // Can deadlock
-          Assert.True(result.IsSuccess);
+          // TUnit assertions are async, so this won't compile
       }
       ```
 
 Assertions:
-  - Use xUnit's built-in assertions:
+  - Use TUnit's built-in assertions:
       ```csharp
-      // Good: Using xUnit's built-in assertions
+      // Good: Using TUnit's built-in assertions
       public class OrderTests
       {
-          [Fact]
-          public void CalculateTotal_WithValidLines_ReturnsCorrectSum()
+          [Test]
+          public async Task CalculateTotal_WithValidLines_ReturnsCorrectSum()
           {
               // Arrange
               var order = new Order(
@@ -448,23 +444,23 @@ Assertions:
               var total = order.CalculateTotal();
               
               // Assert
-              Assert.Equal(40.0m, total);
+              await Assert.That(total).IsEqualTo(40.0m);
           }
           
-          [Fact]
-          public void Order_WithInvalidLines_ThrowsException()
+          [Test]
+          public async Task Order_WithInvalidLines_ThrowsException()
           {
               // Arrange
               var invalidLines = new OrderLine[] { };
               
               // Act & Assert
-              var ex = Assert.Throws<ArgumentException>(() =>
-                  new Order(OrderId.New(), invalidLines));
-              Assert.Equal("Order must have at least one line", ex.Message);
+              await Assert.That(() => new Order(OrderId.New(), invalidLines))
+                  .Throws<ArgumentException>()
+                  .WithMessageContaining("Order must have at least one line");
           }
           
-          [Fact]
-          public void Order_WithValidData_HasExpectedProperties()
+          [Test]
+          public async Task Order_WithValidData_HasExpectedProperties()
           {
               // Arrange
               var id = OrderId.New();
@@ -474,88 +470,61 @@ Assertions:
               var order = new Order(id, lines);
               
               // Assert
-              Assert.NotNull(order);
-              Assert.Equal(id, order.Id);
-              Assert.Single(order.Lines);
-              Assert.Collection(order.Lines,
-                  line =>
-                  {
-                      Assert.Equal("SKU1", line.Sku);
-                      Assert.Equal(1, line.Quantity);
-                      Assert.Equal(10.0m, line.Price);
-                  });
+              await Assert.That(order).IsNotNull();
+              await Assert.That(order.Id).IsEqualTo(id);
+              await Assert.That(order.Lines.Count).IsEqualTo(1);
+              await Assert.That(order.Lines[0].Sku).IsEqualTo("SKU1");
+              await Assert.That(order.Lines[0].Quantity).IsEqualTo(1);
+              await Assert.That(order.Lines[0].Price).IsEqualTo(10.0m);
           }
       }
       ```
       
-  - Avoid third-party assertion libraries:
-      ```csharp
-      // Avoid: Using FluentAssertions or similar libraries
-      public class OrderTests
-      {
-          [Fact]
-          public void CalculateTotal_WithValidLines_ReturnsCorrectSum()
-          {
-              var order = new Order(
-                  OrderId.New(),
-                  new[]
-                  {
-                      new OrderLine("SKU1", 2, 10.0m),
-                      new OrderLine("SKU2", 1, 20.0m)
-                  });
-              
-              // Avoid: Using FluentAssertions
-              order.CalculateTotal().Should().Be(40.0m);
-              order.Lines.Should().HaveCount(2);
-              order.Should().NotBeNull();
-          }
-      }
-      ```
+  - TUnit provides a modern, fluent assertion API that is built-in and doesn't require third-party libraries.
       
-  - Use proper assertion types:
+  - Use proper assertion types with TUnit:
       ```csharp
       public class CustomerTests
       {
-          [Fact]
-          public void Customer_WithValidEmail_IsCreated()
+          [Test]
+          public async Task Customer_WithValidEmail_IsCreated()
           {
               // Boolean assertions
-              Assert.True(customer.IsActive);
-              Assert.False(customer.IsDeleted);
+              await Assert.That(customer.IsActive).IsTrue();
+              await Assert.That(customer.IsDeleted).IsFalse();
               
               // Equality assertions
-              Assert.Equal("john@example.com", customer.Email);
-              Assert.NotEqual(Guid.Empty, customer.Id);
+              await Assert.That(customer.Email).IsEqualTo("john@example.com");
+              await Assert.That(customer.Id).IsNotEqualTo(Guid.Empty);
               
               // Collection assertions
-              Assert.Empty(customer.Orders);
-              Assert.Contains("Admin", customer.Roles);
-              Assert.DoesNotContain("Guest", customer.Roles);
-              Assert.All(customer.Orders, o => Assert.NotNull(o.Id));
+              await Assert.That(customer.Orders).IsEmpty();
+              await Assert.That(customer.Roles).Contains("Admin");
+              await Assert.That(customer.Roles).DoesNotContain("Guest");
               
               // Type assertions
-              Assert.IsType<PremiumCustomer>(customer);
-              Assert.IsAssignableFrom<ICustomer>(customer);
+              await Assert.That(customer).IsInstanceOf<PremiumCustomer>();
+              await Assert.That(customer).IsAssignableTo<ICustomer>();
               
               // String assertions
-              Assert.StartsWith("CUST", customer.Reference);
-              Assert.Contains("Premium", customer.Description);
-              Assert.Matches("^CUST\\d{6}$", customer.Reference);
+              await Assert.That(customer.Reference).StartsWith("CUST");
+              await Assert.That(customer.Description).Contains("Premium");
               
               // Range assertions
-              Assert.InRange(customer.Age, 18, 100);
+              await Assert.That(customer.Age).IsGreaterThanOrEqualTo(18);
+              await Assert.That(customer.Age).IsLessThanOrEqualTo(100);
               
               // Reference assertions
-              Assert.Same(expectedCustomer, actualCustomer);
-              Assert.NotSame(differentCustomer, actualCustomer);
+              await Assert.That(actualCustomer).IsSameAs(expectedCustomer);
+              await Assert.That(actualCustomer).IsNotSameAs(differentCustomer);
           }
       }
       ```
       
-  - Use Assert.Collection for complex collections:
+  - Use TUnit assertions for complex collections:
       ```csharp
-      [Fact]
-      public void ProcessOrder_CreatesExpectedEvents()
+      [Test]
+      public async Task ProcessOrder_CreatesExpectedEvents()
       {
           // Arrange
           var processor = new OrderProcessor();
@@ -565,28 +534,110 @@ Assertions:
           var events = processor.Process(order);
           
           // Assert
-          Assert.Collection(events,
-              evt =>
-              {
-                  Assert.IsType<OrderReceivedEvent>(evt);
-                  var received = Assert.IsType<OrderReceivedEvent>(evt);
-                  Assert.Equal(order.Id, received.OrderId);
-              },
-              evt =>
-              {
-                  Assert.IsType<InventoryReservedEvent>(evt);
-                  var reserved = Assert.IsType<InventoryReservedEvent>(evt);
-                  Assert.Equal(order.Id, reserved.OrderId);
-                  Assert.NotEmpty(reserved.ReservedItems);
-              },
-              evt =>
-              {
-                  Assert.IsType<OrderConfirmedEvent>(evt);
-                  var confirmed = Assert.IsType<OrderConfirmedEvent>(evt);
-                  Assert.Equal(order.Id, confirmed.OrderId);
-                  Assert.True(confirmed.IsSuccess);
-              });
+          await Assert.That(events.Count).IsEqualTo(3);
+          await Assert.That(events[0]).IsInstanceOf<OrderReceivedEvent>();
+          var received = (OrderReceivedEvent)events[0];
+          await Assert.That(received.OrderId).IsEqualTo(order.Id);
+          
+          await Assert.That(events[1]).IsInstanceOf<InventoryReservedEvent>();
+          var reserved = (InventoryReservedEvent)events[1];
+          await Assert.That(reserved.OrderId).IsEqualTo(order.Id);
+          await Assert.That(reserved.ReservedItems).IsNotEmpty();
+          
+          await Assert.That(events[2]).IsInstanceOf<OrderConfirmedEvent>();
+          var confirmed = (OrderConfirmedEvent)events[2];
+          await Assert.That(confirmed.OrderId).IsEqualTo(order.Id);
+          await Assert.That(confirmed.IsSuccess).IsTrue();
       }
+      ```
+
+Mocking with FakeItEasy:
+  - Use FakeItEasy for creating fakes (mocks):
+      ```csharp
+      using FakeItEasy;
+      
+      public class OrderProcessorTests
+      {
+          [Test]
+          public async Task ProcessOrder_ValidOrder_CallsRepository()
+          {
+              // Arrange
+              var repositoryFake = A.Fake<IRepository>();
+              var processor = new OrderProcessor(repositoryFake);
+              var order = new Order(OrderId.New(), TestData.CreateOrderLines());
+              
+              // Act
+              await processor.ProcessAsync(order);
+              
+              // Assert
+              A.CallTo(() => repositoryFake.SaveAsync(
+                      A<Order>.That.Matches(o => o.Id == order.Id),
+                      A<CancellationToken>._))
+                  .MustHaveHappenedOnceExactly();
+          }
+      }
+      ```
+      
+  - Configure fake behavior:
+      ```csharp
+      // Configure return values
+      var repositoryFake = A.Fake<IRepository>();
+      A.CallTo(() => repositoryFake.GetByIdAsync(A<Guid>._))
+          .Returns(new Order { Id = testOrderId });
+      
+      // Configure to throw exceptions
+      A.CallTo(() => repositoryFake.GetByIdAsync(A<Guid>._))
+          .Throws<NotFoundException>();
+      
+      // Configure with argument constraints
+      A.CallTo(() => repositoryFake.GetByIdAsync(
+              A<Guid>.That.Matches(id => id != Guid.Empty)))
+          .Returns(new Order());
+      ```
+      
+  - Common argument constraints:
+      ```csharp
+      // Ignore arguments
+      A.CallTo(() => fake.Method(A<string>._)).Returns("result");
+      A.CallTo(() => fake.Method(A<string>.Ignored)).Returns("result");
+      
+      // Match exact values
+      A.CallTo(() => fake.Method("exact value")).Returns("result");
+      
+      // Match with predicate
+      A.CallTo(() => fake.Method(
+              A<string>.That.Matches(s => s.Length > 5)))
+          .Returns("result");
+      
+      // Match with That matchers
+      A.CallTo(() => fake.Method(
+              A<string>.That.Contains("substring")))
+          .Returns("result");
+      ```
+      
+  - Verify calls:
+      ```csharp
+      // Verify call happened
+      A.CallTo(() => fake.Method(A<string>._)).MustHaveHappened();
+      
+      // Verify call happened exactly once
+      A.CallTo(() => fake.Method(A<string>._)).MustHaveHappenedOnceExactly();
+      
+      // Verify call never happened
+      A.CallTo(() => fake.Method(A<string>._)).MustNotHaveHappened();
+      
+      // Verify call happened specific number of times
+      A.CallTo(() => fake.Method(A<string>._))
+          .MustHaveHappened(3, Times.Exactly);
+      ```
+      
+  - Configure properties:
+      ```csharp
+      var contextFake = A.Fake<ConsumeContext<Order>>();
+      A.CallTo(() => contextFake.Message).Returns(orderMessage);
+      
+      // Or set property directly if it's writable
+      contextFake.Message = orderMessage;
       ```
 
 # End of Cursor Rules File 
