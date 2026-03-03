@@ -1,6 +1,5 @@
 using MassTransit;
 using MassTransitDemo.Core.Transports;
-using MassTransitDemo.Features.ErrorHandling.Configuration;
 
 namespace MassTransitDemo.Transports;
 
@@ -45,6 +44,10 @@ public sealed class AzureServiceBusTransportConfigurator : IBusTransportConfigur
             }
 
             cfg.ConfigureEndpoints(context);
+            
+            // Configure Azure Service Bus native DLQ if enabled
+            // This is configured via AddConfigureEndpointsCallback in Program.cs
+            // to avoid requiring Azure Service Bus types in this project
         });
     }
 }
