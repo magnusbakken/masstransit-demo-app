@@ -31,14 +31,10 @@ public sealed class CustomerCreatedHandlerTests
         await handler.Consume(context);
 
         // Assert
-        A.CallTo(() => loggerFake.Log(
-                LogLevel.Information,
-                A<EventId>._,
-                A<object>._,
-                A<Exception?>._,
-                A<Func<object, Exception?, string>>._))
-            .WhenArgumentsMatch((LogLevel level, EventId eventId, object state, Exception? ex, Func<object, Exception?, string> formatter) =>
-                state.ToString()!.Contains("CustomerCreated event received"))
+        A.CallTo(loggerFake)
+            .Where(call => call.Method.Name == "Log" &&
+                           call.GetArgument<LogLevel>(0) == LogLevel.Information &&
+                           call.GetArgument<object>(2)!.ToString()!.Contains("CustomerCreated event received"))
             .MustHaveHappenedOnceExactly();
 
         A.CallTo(() => publishEndpointFake.Publish(

@@ -27,7 +27,6 @@ public sealed class ProcessPaymentHandlerTests
         A.CallTo(() => context.Message).Returns(message);
 
         // Act & Assert
-        await Assert.That(async () => await handler.Consume(context))
-            .Throws<InvalidOperationException>();
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await handler.Consume(context));
     }
 }

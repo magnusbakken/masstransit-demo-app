@@ -26,8 +26,7 @@ public sealed class ProcessOrderHandlerTests
         A.CallTo(() => context.Message).Returns(message);
 
         // Act & Assert - First attempt should fail
-        await Assert.That(async () => await handler.Consume(context))
-            .Throws<InvalidOperationException>();
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await handler.Consume(context));
     }
 
     [Test]
@@ -58,13 +57,9 @@ public sealed class ProcessOrderHandlerTests
         A.CallTo(() => context2.Message).Returns(message2);
 
         // Act - First attempt fails
-        await Assert.That(async () => await handler.Consume(context1))
-            .Throws<InvalidOperationException>();
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await handler.Consume(context1));
 
         // Second attempt succeeds
         await handler.Consume(context2);
-
-        // Assert - No exception means success
-        await Assert.That(true).IsTrue();
     }
 }
