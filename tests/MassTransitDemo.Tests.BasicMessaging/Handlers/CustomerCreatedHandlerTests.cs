@@ -3,7 +3,6 @@ using MassTransit;
 using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Features.BasicMessaging.Handlers;
 using Microsoft.Extensions.Logging;
-using TUnit.Framework;
 
 namespace MassTransitDemo.Tests.BasicMessaging.Handlers;
 
