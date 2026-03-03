@@ -4,7 +4,10 @@ using MassTransitDemo.Core.Transports;
 using MassTransitDemo.Features.BasicMessaging.Handlers;
 using MassTransitDemo.Features.ErrorHandling.Configuration;
 using MassTransitDemo.Features.ErrorHandling.Handlers;
+using MassTransitDemo.Features.Outbox.Data;
+using MassTransitDemo.Features.Outbox.Handlers;
 using MassTransitDemo.Transports;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -62,20 +65,28 @@ public static class Program
 
                 services.AddSingleton(transportOptions);
 
-                // Configure PostgreSQL SQL transport options if using PostgreSQL
-                // Note: This requires the MassTransit.SqlTransport.PostgreSQL package
-                // and uses SqlTransportOptions which should be available via that package
-                if (transportOptions.TransportType == TransportType.PostgreSQL)
+                // Configure Entity Framework Core for transactional outbox
+                var postgresConnectionString = transportOptions.PostgreSQLConnectionString 
+                    ?? "Host=localhost;Port=5432;Database=masstransit_demo;Username=masstransit;Password=masstransit";
+
+                services.AddDbContext<OutboxDbContext>(options =>
                 {
-                    // PostgreSQL transport configuration will be handled by the transport configurator
-                    // SqlTransportOptions can be configured here if needed via DI
-                }
+                    options.UseNpgsql(postgresConnectionString);
+                });
 
                 // Create and configure transport
                 var transportConfigurator = TransportConfiguratorFactory.Create(transportOptions);
                 
+                // Configure MassTransit with Entity Framework outbox
                 services.AddMassTransit(x =>
                 {
+                    // Configure Entity Framework outbox
+                    x.AddEntityFrameworkOutbox<OutboxDbContext>(o =>
+                    {
+                        o.UsePostgres();
+                        o.UseBusOutbox();
+                    });
+
                     // Register basic messaging handlers
                     x.AddConsumer<CustomerCreatedHandler>();
                     x.AddConsumer<SendVerificationEmailHandler>();
@@ -102,11 +113,21 @@ public static class Program
                         });
                     });
 
+                    // Register transactional outbox handlers
+                    x.AddConsumer<CreateOrderHandler>();
+                    x.AddConsumer<OrderCreatedHandler>();
+
+                    // Configure Entity Framework outbox for all endpoints
+                    x.AddConfigureEndpointsCallback((context, name, cfg) =>
+                    {
+                        cfg.UseEntityFrameworkOutbox<OutboxDbContext>(context);
+                    });
+
                     // Configure Azure Service Bus native DLQ if enabled
                     if (transportOptions.TransportType == TransportType.AzureServiceBus && 
                         transportOptions.UseAzureServiceBusNativeDlq)
                     {
-                        x.AddConfigureEndpointsCallback((_, cfg) =>
+                        x.AddConfigureEndpointsCallback((_, name, cfg) =>
                         {
                             ErrorHandlingConfiguration.ConfigureAzureServiceBusDeadLetterQueue(cfg, useNativeDlq: true);
                         });
@@ -133,7 +154,7 @@ public static class Program
             System.Console.WriteLine("2. Handler Chain - Trigger CustomerCreated → SendVerificationEmail → EmailSent → WelcomeEmailSent");
             System.Console.WriteLine("3. Error Handling - ProcessPayment (fails, goes to DLQ)");
             System.Console.WriteLine("4. Retry Mechanism - ProcessOrder (fails first time, succeeds on retry)");
-            System.Console.WriteLine("5. Transactional Outbox (coming in PR 5)");
+            System.Console.WriteLine("5. Transactional Outbox - CreateOrder (database + event atomically)");
             System.Console.WriteLine("6. Sagas (coming in PR 6)");
             System.Console.WriteLine("0. Exit");
             System.Console.WriteLine();
@@ -159,6 +180,8 @@ public static class Program
                     await HandleRetryMechanismAsync(services, logger);
                     break;
                 case "5":
+                    await HandleTransactionalOutboxAsync(services, logger);
+                    break;
                 case "6":
                     System.Console.WriteLine();
                     System.Console.WriteLine("This feature will be available in a future PR.");
@@ -285,6 +308,48 @@ public static class Program
         System.Console.WriteLine();
         System.Console.WriteLine("Waiting 5 seconds for retry to complete...");
         await Task.Delay(5000);
+        System.Console.WriteLine("Press any key to continue...");
+        System.Console.ReadKey();
+    }
+
+    private static async Task HandleTransactionalOutboxAsync(IServiceProvider services, ILogger logger)
+    {
+        var bus = services.GetRequiredService<IPublishEndpoint>();
+        var dbContext = services.GetRequiredService<OutboxDbContext>();
+        
+        System.Console.WriteLine();
+        System.Console.WriteLine("=== Transactional Outbox Demo ===");
+        System.Console.WriteLine("Publishing CreateOrder command...");
+        System.Console.WriteLine("This will update the database and publish OrderCreated event atomically.");
+        System.Console.WriteLine();
+
+        // Ensure database is created
+        await dbContext.Database.EnsureCreatedAsync();
+
+        var createOrder = new CreateOrder
+        {
+            OrderId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            TotalAmount = 199.99m,
+            Items = new List<OrderItem>
+            {
+                new OrderItem { ProductName = "Widget A", Quantity = 2, UnitPrice = 50.00m },
+                new OrderItem { ProductName = "Widget B", Quantity = 1, UnitPrice = 99.99m }
+            }
+        };
+
+        await bus.Publish(createOrder);
+
+        logger.LogInformation("CreateOrder command published - OrderId: {OrderId}", createOrder.OrderId);
+        
+        System.Console.WriteLine("Command published! The handler will:");
+        System.Console.WriteLine("1. Create order in database");
+        System.Console.WriteLine("2. Publish OrderCreated event (stored in outbox)");
+        System.Console.WriteLine("3. Commit transaction atomically");
+        System.Console.WriteLine("4. Outbox delivery service will deliver event to broker");
+        System.Console.WriteLine();
+        System.Console.WriteLine("Waiting 3 seconds for outbox delivery...");
+        await Task.Delay(3000);
         System.Console.WriteLine("Press any key to continue...");
         System.Console.ReadKey();
     }

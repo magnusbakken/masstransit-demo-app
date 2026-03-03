@@ -5,6 +5,7 @@
     <ProjectReference Include="..\MassTransitDemo.Transports\MassTransitDemo.Transports.csproj" />
     <ProjectReference Include="..\MassTransitDemo.Features.BasicMessaging\MassTransitDemo.Features.BasicMessaging.csproj" />
     <ProjectReference Include="..\MassTransitDemo.Features.ErrorHandling\MassTransitDemo.Features.ErrorHandling.csproj" />
+    <ProjectReference Include="..\MassTransitDemo.Features.Outbox\MassTransitDemo.Features.Outbox.csproj" />
   </ItemGroup>
 
   <ItemGroup>
