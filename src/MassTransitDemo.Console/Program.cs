@@ -79,8 +79,11 @@ public static class Program
         // Ensure the EF Core outbox schema exists before starting the bus.
         // The outbox middleware is applied to all consumer endpoints, so the DB tables
         // must exist before the receive endpoints start polling them.
-        var dbContext = host.Services.GetRequiredService<OutboxDbContext>();
-        await dbContext.Database.EnsureCreatedAsync();
+        using (var scope = host.Services.CreateScope())
+        {
+            var dbContext = scope.ServiceProvider.GetRequiredService<OutboxDbContext>();
+            await dbContext.Database.EnsureCreatedAsync();
+        }
 
         // Start the Generic Host so that MassTransit hosted services (bus + receive endpoints)
         // are fully running before any messages are published or the menu is shown.
