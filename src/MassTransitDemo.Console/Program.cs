@@ -140,9 +140,15 @@ public static class Program
 
     private static IHostBuilder CreateHostBuilder(string? transportOverride = null) =>
         Host.CreateDefaultBuilder()
-            .ConfigureAppConfiguration((_, config) =>
+            .ConfigureAppConfiguration((context, config) =>
             {
                 config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+
+                if (context.HostingEnvironment.IsDevelopment())
+                {
+                    config.AddUserSecrets(typeof(Program).Assembly, optional: true, reloadOnChange: true);
+                }
+                
                 config.AddEnvironmentVariables();
             })
             .ConfigureServices((context, services) =>
