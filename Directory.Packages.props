@@ -25,6 +25,7 @@
     <PackageVersion Include="Npgsql" Version="9.0.2" />
     <!-- Testing -->
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.0" />
+    <PackageVersion Include="System.CommandLine" Version="3.0.0-preview.1.26104.118" />
     <PackageVersion Include="TUnit" Version="0.50.0" />
     <PackageVersion Include="FakeItEasy" Version="8.3.0" />
   </ItemGroup>
