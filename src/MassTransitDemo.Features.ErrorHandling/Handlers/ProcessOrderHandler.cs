@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using MassTransit;
 using MassTransitDemo.Core.Messages;
 using Microsoft.Extensions.Logging;
@@ -11,7 +12,7 @@ namespace MassTransitDemo.Features.ErrorHandling.Handlers;
 public sealed class ProcessOrderHandler : IConsumer<ProcessOrder>
 {
     private readonly ILogger<ProcessOrderHandler> _logger;
-    private static readonly Dictionary<Guid, int> AttemptCounts = new();
+    private static readonly ConcurrentDictionary<Guid, int> AttemptCounts = new();
 
     public ProcessOrderHandler(ILogger<ProcessOrderHandler> logger)
     {
@@ -22,15 +23,7 @@ public sealed class ProcessOrderHandler : IConsumer<ProcessOrder>
     {
         var message = context.Message;
         
-        // Track attempt count per order
-        if (!AttemptCounts.ContainsKey(message.OrderId))
-        {
-            AttemptCounts[message.OrderId] = 0;
-        }
-        
-        AttemptCounts[message.OrderId]++;
-
-        var attemptCount = AttemptCounts[message.OrderId];
+        var attemptCount = AttemptCounts.AddOrUpdate(message.OrderId, 1, (_, count) => count + 1);
 
         _logger.LogInformation(
             "Processing order OrderId: {OrderId}, CustomerId: {CustomerId}, Attempt: {Attempt}",
@@ -61,7 +54,7 @@ public sealed class ProcessOrderHandler : IConsumer<ProcessOrder>
         System.Console.WriteLine();
 
         // Clean up attempt count after successful processing
-        AttemptCounts.Remove(message.OrderId);
+        AttemptCounts.TryRemove(message.OrderId, out _);
 
         return Task.CompletedTask;
     }
