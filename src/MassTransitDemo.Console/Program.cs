@@ -1,4 +1,5 @@
-﻿using MassTransit;
+using System.CommandLine;
+using MassTransit;
 using MassTransitDemo.Core.Messages;
 using MassTransitDemo.Core.Transports;
 using MassTransitDemo.Features.BasicMessaging.Handlers;
@@ -19,9 +20,55 @@ namespace MassTransitDemo.Console;
 
 public static class Program
 {
-    public static async Task Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
-        var host = CreateHostBuilder(args).Build();
+        var demoOption = new Option<string?>("--demo", "-d")
+        {
+            Description =
+                "Demo to run non-interactively. Accepts a number (1-7) or a name: " +
+                "basic-messaging, handler-chain, error-handling, retry, outbox, " +
+                "consumer-saga, state-machine-saga.",
+            HelpName = "name"
+        };
+
+        var transportOption = new Option<string?>("--transport", "-t")
+        {
+            Description = "Transport type override: RabbitMQ, AzureServiceBus, PostgreSQL. " +
+                          "Overrides the value in appsettings.json.",
+            HelpName = "type"
+        };
+
+        var sagaOrderOption = new Option<string?>("--saga-order", "-s")
+        {
+            Description =
+                "Event initiation order for saga demos (consumer-saga, state-machine-saga). " +
+                "Values: order-first (default), inventory-first, concurrent.",
+            HelpName = "order"
+        };
+
+        var rootCommand = new RootCommand(
+            "MassTransit Demo — showcase of MassTransit 8.x messaging patterns. " +
+            "Run without arguments to launch the interactive menu.");
+
+        rootCommand.Add(demoOption);
+        rootCommand.Add(transportOption);
+        rootCommand.Add(sagaOrderOption);
+
+        rootCommand.SetAction(async parseResult =>
+        {
+            var demo = parseResult.GetValue(demoOption);
+            var transport = parseResult.GetValue(transportOption);
+            var sagaOrder = parseResult.GetValue(sagaOrderOption) ?? "order-first";
+
+            await RunApplicationAsync(demo, transport, sagaOrder);
+        });
+
+        return await rootCommand.Parse(args).InvokeAsync();
+    }
+
+    private static async Task RunApplicationAsync(string? demo, string? transport, string sagaOrder)
+    {
+        var host = CreateHostBuilder(transport).Build();
 
         var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MassTransitDemo");
         logger.LogInformation("MassTransit Demo Application starting...");
@@ -29,13 +76,26 @@ public static class Program
             host.Services.GetRequiredService<IConfiguration>()
                 .GetSection("Transport")["TransportType"]);
 
-        // Start the bus
-        var bus = host.Services.GetRequiredService<IBus>();
+        // Ensure the EF Core outbox schema exists before starting the bus.
+        // The outbox middleware is applied to all consumer endpoints, so the DB tables
+        // must exist before the receive endpoints start polling them.
+        var dbContext = host.Services.GetRequiredService<OutboxDbContext>();
+        await dbContext.Database.EnsureCreatedAsync();
+
+        // Start the Generic Host so that MassTransit hosted services (bus + receive endpoints)
+        // are fully running before any messages are published or the menu is shown.
+        await host.StartAsync();
 
         try
         {
-            // Display menu
-            await DisplayMenuAsync(host.Services, logger);
+            if (demo is not null)
+            {
+                await RunDemoNonInteractiveAsync(host.Services, logger, demo, sagaOrder);
+            }
+            else
+            {
+                await DisplayMenuAsync(host.Services, logger);
+            }
         }
         finally
         {
@@ -43,104 +103,131 @@ public static class Program
         }
     }
 
-    private static IHostBuilder CreateHostBuilder(string[] args) =>
-        Host.CreateDefaultBuilder(args)
-            .ConfigureAppConfiguration((context, config) =>
+    private static async Task RunDemoNonInteractiveAsync(
+        IServiceProvider services, ILogger logger, string demo, string sagaOrder)
+    {
+        var key = demo.Trim().ToLowerInvariant();
+        switch (key)
+        {
+            case "1" or "basic-messaging":
+                await HandleBasicMessagingAsync(services, logger, interactive: false);
+                break;
+            case "2" or "handler-chain":
+                await HandleHandlerChainAsync(services, logger, interactive: false);
+                break;
+            case "3" or "error-handling":
+                await HandleErrorHandlingAsync(services, logger, interactive: false);
+                break;
+            case "4" or "retry":
+                await HandleRetryMechanismAsync(services, logger, interactive: false);
+                break;
+            case "5" or "outbox":
+                await HandleTransactionalOutboxAsync(services, logger, interactive: false);
+                break;
+            case "6" or "consumer-saga":
+                await HandleConsumerSagaAsync(services, logger, sagaOrder, interactive: false);
+                break;
+            case "7" or "state-machine-saga":
+                await HandleStateMachineSagaAsync(services, logger, sagaOrder, interactive: false);
+                break;
+            default:
+                System.Console.Error.WriteLine(
+                    $"Unknown demo '{demo}'. Valid values: 1-7 or basic-messaging, " +
+                    "handler-chain, error-handling, retry, outbox, consumer-saga, state-machine-saga.");
+                break;
+        }
+    }
+
+    private static IHostBuilder CreateHostBuilder(string? transportOverride = null) =>
+        Host.CreateDefaultBuilder()
+            .ConfigureAppConfiguration((_, config) =>
             {
                 config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
                 config.AddEnvironmentVariables();
             })
             .ConfigureServices((context, services) =>
             {
-                // Configure transport options
                 var transportSection = context.Configuration.GetSection("Transport");
                 var transportOptions = new TransportOptions
                 {
-                    TransportType = Enum.Parse<TransportType>(
-                        transportSection["TransportType"] ?? "RabbitMQ"),
-                    UseAzureServiceBusEmulator = transportSection.GetValue<bool>("UseAzureServiceBusEmulator", true),
-                    UseAzureServiceBusNativeDlq = transportSection.GetValue<bool>("UseAzureServiceBusNativeDlq", true),
-                    AzureServiceBusConnectionString = transportSection["AzureServiceBusConnectionString"],
+                    TransportType = transportOverride is not null
+                        ? Enum.Parse<TransportType>(transportOverride, ignoreCase: true)
+                        : Enum.Parse<TransportType>(
+                            transportSection["TransportType"] ?? "RabbitMQ"),
+                    UseAzureServiceBusEmulator =
+                        transportSection.GetValue<bool>("UseAzureServiceBusEmulator", true),
+                    UseAzureServiceBusNativeDlq =
+                        transportSection.GetValue<bool>("UseAzureServiceBusNativeDlq", true),
+                    AzureServiceBusConnectionString =
+                        transportSection["AzureServiceBusConnectionString"],
                     RabbitMQConnectionString = transportSection["RabbitMQConnectionString"],
                     PostgreSQLConnectionString = transportSection["PostgreSQLConnectionString"]
                 };
 
                 services.AddSingleton(transportOptions);
 
-                // Configure Entity Framework Core for transactional outbox
-                var postgresConnectionString = transportOptions.PostgreSQLConnectionString
-                    ?? "Host=localhost;Port=5432;Database=masstransit_demo;Username=masstransit;Password=masstransit";
+                var postgresConnectionString =
+                    string.IsNullOrEmpty(transportOptions.PostgreSQLConnectionString)
+                        ? "Host=localhost;Port=5432;Database=masstransit_demo;Username=masstransit;Password=masstransit"
+                        : transportOptions.PostgreSQLConnectionString;
 
                 services.AddDbContext<OutboxDbContext>(options =>
                 {
                     options.UseNpgsql(postgresConnectionString);
                 });
 
-                // Create and configure transport
                 var transportConfigurator = TransportConfiguratorFactory.Create(transportOptions);
 
-                // Configure MassTransit with Entity Framework outbox
                 services.AddMassTransit(x =>
                 {
-                    // Configure Entity Framework outbox
                     x.AddEntityFrameworkOutbox<OutboxDbContext>(o =>
                     {
                         o.UsePostgres();
                         o.UseBusOutbox();
                     });
 
-                    // Register basic messaging handlers
                     x.AddConsumer<CustomerCreatedHandler>();
                     x.AddConsumer<SendVerificationEmailHandler>();
                     x.AddConsumer<EmailSentHandler>();
                     x.AddConsumer<WelcomeEmailSentHandler>();
 
-                    // Register error handling handlers
                     x.AddConsumer<ProcessPaymentHandler>(cfg =>
                     {
-                        // Configure dead-letter queue for failing payments
-                        cfg.UseMessageRetry(r => r.None()); // Don't retry, go straight to DLQ
+                        cfg.UseMessageRetry(r => r.None());
                     });
 
                     x.AddConsumer<ProcessOrderHandler>(cfg =>
                     {
-                        // Configure retry policy for order processing with exponential backoff
                         cfg.UseMessageRetry(r =>
                         {
                             r.Exponential(
-                                5, // max retry attempts
-                                TimeSpan.FromSeconds(1), // initial interval
-                                TimeSpan.FromSeconds(10), // max interval
-                                TimeSpan.FromSeconds(2)); // interval delta
+                                5,
+                                TimeSpan.FromSeconds(1),
+                                TimeSpan.FromSeconds(10),
+                                TimeSpan.FromSeconds(2));
                         });
                     });
 
-                    // Register transactional outbox handlers
                     x.AddConsumer<CreateOrderHandler>();
                     x.AddConsumer<OrderCreatedHandler>();
 
-                    // Register saga handlers
                     x.AddConsumer<ShipmentPreparedHandler>();
 
-                    // Register consumer-based saga
                     x.AddSaga<ShipmentPreparationSaga>()
                         .InMemoryRepository();
 
-                    // Register state machine saga
                     x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>()
                         .InMemoryRepository();
 
-                    // Configure Entity Framework outbox for all endpoints
-                    x.AddConfigureEndpointsCallback((context, name, cfg) =>
+                    x.AddConfigureEndpointsCallback((context, _, cfg) =>
                     {
                         cfg.UseEntityFrameworkOutbox<OutboxDbContext>(context);
                     });
 
-                    // Configure Azure Service Bus native DLQ if enabled
                     if (transportOptions.TransportType == TransportType.AzureServiceBus &&
                         transportOptions.UseAzureServiceBusNativeDlq)
                     {
-                        x.AddConfigureEndpointsCallback((_, name, cfg) =>
+                        x.AddConfigureEndpointsCallback((_, _, cfg) =>
                         {
                             if (cfg is IServiceBusReceiveEndpointConfigurator sb)
                             {
@@ -216,9 +303,10 @@ public static class Program
         }
     }
 
-    private static async Task HandleBasicMessagingAsync(IServiceProvider services, ILogger logger)
+    private static async Task HandleBasicMessagingAsync(
+        IServiceProvider services, ILogger logger, bool interactive = true)
     {
-        var bus = services.GetRequiredService<IPublishEndpoint>();
+        var bus = services.GetRequiredService<IBus>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Basic Messaging Demo ===");
@@ -234,17 +322,23 @@ public static class Program
 
         await bus.Publish(customerCreated);
 
-        logger.LogInformation("CustomerCreated event published - CustomerId: {CustomerId}", customerCreated.CustomerId);
+        logger.LogInformation("CustomerCreated event published - CustomerId: {CustomerId}",
+            customerCreated.CustomerId);
 
         System.Console.WriteLine("Event published! Check the logs above for handler output.");
         System.Console.WriteLine("Note: This will also trigger the handler chain (CustomerCreated → SendVerificationEmail → ...)");
-        System.Console.WriteLine("Press any key to continue...");
-        System.Console.ReadKey();
+
+        if (interactive)
+        {
+            System.Console.WriteLine("Press any key to continue...");
+            System.Console.ReadKey();
+        }
     }
 
-    private static async Task HandleHandlerChainAsync(IServiceProvider services, ILogger logger)
+    private static async Task HandleHandlerChainAsync(
+        IServiceProvider services, ILogger logger, bool interactive = true)
     {
-        var bus = services.GetRequiredService<IPublishEndpoint>();
+        var bus = services.GetRequiredService<IBus>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Handler Chain Demo ===");
@@ -261,18 +355,24 @@ public static class Program
 
         await bus.Publish(customerCreated);
 
-        logger.LogInformation("CustomerCreated event published to trigger chain - CustomerId: {CustomerId}", customerCreated.CustomerId);
+        logger.LogInformation("CustomerCreated event published to trigger chain - CustomerId: {CustomerId}",
+            customerCreated.CustomerId);
 
         System.Console.WriteLine("Chain initiated! Watch the console for each step in the chain.");
         System.Console.WriteLine("Waiting 2 seconds for chain to complete...");
         await Task.Delay(2000);
-        System.Console.WriteLine("Press any key to continue...");
-        System.Console.ReadKey();
+
+        if (interactive)
+        {
+            System.Console.WriteLine("Press any key to continue...");
+            System.Console.ReadKey();
+        }
     }
 
-    private static async Task HandleErrorHandlingAsync(IServiceProvider services, ILogger logger)
+    private static async Task HandleErrorHandlingAsync(
+        IServiceProvider services, ILogger logger, bool interactive = true)
     {
-        var bus = services.GetRequiredService<IPublishEndpoint>();
+        var bus = services.GetRequiredService<IBus>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Error Handling Demo ===");
@@ -290,17 +390,23 @@ public static class Program
 
         await bus.Publish(processPayment);
 
-        logger.LogInformation("ProcessPayment command published - PaymentId: {PaymentId}", processPayment.PaymentId);
+        logger.LogInformation("ProcessPayment command published - PaymentId: {PaymentId}",
+            processPayment.PaymentId);
 
         System.Console.WriteLine("Command published! The handler will fail and the message will be moved to DLQ.");
         System.Console.WriteLine("Check your transport's dead-letter queue to see the failed message.");
-        System.Console.WriteLine("Press any key to continue...");
-        System.Console.ReadKey();
+
+        if (interactive)
+        {
+            System.Console.WriteLine("Press any key to continue...");
+            System.Console.ReadKey();
+        }
     }
 
-    private static async Task HandleRetryMechanismAsync(IServiceProvider services, ILogger logger)
+    private static async Task HandleRetryMechanismAsync(
+        IServiceProvider services, ILogger logger, bool interactive = true)
     {
-        var bus = services.GetRequiredService<IPublishEndpoint>();
+        var bus = services.GetRequiredService<IBus>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Retry Mechanism Demo ===");
@@ -326,23 +432,24 @@ public static class Program
         System.Console.WriteLine();
         System.Console.WriteLine("Waiting 5 seconds for retry to complete...");
         await Task.Delay(5000);
-        System.Console.WriteLine("Press any key to continue...");
-        System.Console.ReadKey();
+
+        if (interactive)
+        {
+            System.Console.WriteLine("Press any key to continue...");
+            System.Console.ReadKey();
+        }
     }
 
-    private static async Task HandleTransactionalOutboxAsync(IServiceProvider services, ILogger logger)
+    private static async Task HandleTransactionalOutboxAsync(
+        IServiceProvider services, ILogger logger, bool interactive = true)
     {
-        var bus = services.GetRequiredService<IPublishEndpoint>();
-        var dbContext = services.GetRequiredService<OutboxDbContext>();
+        var bus = services.GetRequiredService<IBus>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Transactional Outbox Demo ===");
         System.Console.WriteLine("Publishing CreateOrder command...");
         System.Console.WriteLine("This will update the database and publish OrderCreated event atomically.");
         System.Console.WriteLine();
-
-        // Ensure database is created
-        await dbContext.Database.EnsureCreatedAsync();
 
         var createOrder = new CreateOrder
         {
@@ -368,105 +475,52 @@ public static class Program
         System.Console.WriteLine();
         System.Console.WriteLine("Waiting 3 seconds for outbox delivery...");
         await Task.Delay(3000);
-        System.Console.WriteLine("Press any key to continue...");
-        System.Console.ReadKey();
+
+        if (interactive)
+        {
+            System.Console.WriteLine("Press any key to continue...");
+            System.Console.ReadKey();
+        }
     }
 
-    private static async Task HandleConsumerSagaAsync(IServiceProvider services, ILogger logger)
+    private static async Task HandleConsumerSagaAsync(
+        IServiceProvider services, ILogger logger,
+        string sagaOrder = "order-first", bool interactive = true)
     {
-        var bus = services.GetRequiredService<IPublishEndpoint>();
+        var bus = services.GetRequiredService<IBus>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Consumer Saga Demo ===");
         System.Console.WriteLine("This saga can be initiated by either OrderConfirmed or InventoryReserved.");
         System.Console.WriteLine("It completes when both messages have been received.");
         System.Console.WriteLine();
-        System.Console.WriteLine("Choose initiation order:");
-        System.Console.WriteLine("1. OrderConfirmed first, then InventoryReserved");
-        System.Console.WriteLine("2. InventoryReserved first, then OrderConfirmed");
-        System.Console.WriteLine("3. Both at the same time");
-        System.Console.Write("Enter your choice (1-3): ");
 
-        var choice = System.Console.ReadLine();
+        string choice;
+        if (interactive)
+        {
+            System.Console.WriteLine("Choose initiation order:");
+            System.Console.WriteLine("1. OrderConfirmed first, then InventoryReserved");
+            System.Console.WriteLine("2. InventoryReserved first, then OrderConfirmed");
+            System.Console.WriteLine("3. Both at the same time");
+            System.Console.Write("Enter your choice (1-3): ");
+            choice = System.Console.ReadLine() ?? "1";
+        }
+        else
+        {
+            choice = sagaOrder.ToLowerInvariant() switch
+            {
+                "1" or "order-first" => "1",
+                "2" or "inventory-first" => "2",
+                "3" or "concurrent" => "3",
+                _ => "1"
+            };
+            System.Console.WriteLine($"Saga order: {sagaOrder} (choice {choice})");
+        }
+
         var orderId = Guid.NewGuid();
         var customerId = Guid.NewGuid();
 
-        switch (choice)
-        {
-            case "1":
-                await bus.Publish(new OrderConfirmed
-                {
-                    OrderId = orderId,
-                    CustomerId = customerId,
-                    ConfirmedAt = DateTime.UtcNow
-                });
-                await Task.Delay(1000);
-                await bus.Publish(new InventoryReserved
-                {
-                    OrderId = orderId,
-                    Items = new List<ReservedItem>
-                    {
-                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
-                    },
-                    ReservedAt = DateTime.UtcNow
-                });
-                break;
-            case "2":
-                await bus.Publish(new InventoryReserved
-                {
-                    OrderId = orderId,
-                    Items = new List<ReservedItem>
-                    {
-                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
-                    },
-                    ReservedAt = DateTime.UtcNow
-                });
-                await Task.Delay(1000);
-                await bus.Publish(new OrderConfirmed
-                {
-                    OrderId = orderId,
-                    CustomerId = customerId,
-                    ConfirmedAt = DateTime.UtcNow
-                });
-                break;
-            case "3":
-                await Task.WhenAll(
-                    bus.Publish(new OrderConfirmed
-                    {
-                        OrderId = orderId,
-                        CustomerId = customerId,
-                        ConfirmedAt = DateTime.UtcNow
-                    }),
-                    bus.Publish(new InventoryReserved
-                    {
-                        OrderId = orderId,
-                        Items = new List<ReservedItem>
-                        {
-                            new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
-                        },
-                        ReservedAt = DateTime.UtcNow
-                    }));
-                break;
-            default:
-                System.Console.WriteLine("Invalid choice. Using default (OrderConfirmed first).");
-                await bus.Publish(new OrderConfirmed
-                {
-                    OrderId = orderId,
-                    CustomerId = customerId,
-                    ConfirmedAt = DateTime.UtcNow
-                });
-                await Task.Delay(1000);
-                await bus.Publish(new InventoryReserved
-                {
-                    OrderId = orderId,
-                    Items = new List<ReservedItem>
-                    {
-                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
-                    },
-                    ReservedAt = DateTime.UtcNow
-                });
-                break;
-        }
+        await PublishSagaEventsAsync(bus, orderId, customerId, choice);
 
         logger.LogInformation("Consumer saga demo initiated - OrderId: {OrderId}", orderId);
 
@@ -474,28 +528,74 @@ public static class Program
         System.Console.WriteLine("Events published! Watch the console for saga progression.");
         System.Console.WriteLine("Waiting 3 seconds for saga to complete...");
         await Task.Delay(3000);
-        System.Console.WriteLine("Press any key to continue...");
-        System.Console.ReadKey();
+
+        if (interactive)
+        {
+            System.Console.WriteLine("Press any key to continue...");
+            System.Console.ReadKey();
+        }
     }
 
-    private static async Task HandleStateMachineSagaAsync(IServiceProvider services, ILogger logger)
+    private static async Task HandleStateMachineSagaAsync(
+        IServiceProvider services, ILogger logger,
+        string sagaOrder = "order-first", bool interactive = true)
     {
-        var bus = services.GetRequiredService<IPublishEndpoint>();
+        var bus = services.GetRequiredService<IBus>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== State Machine Saga Demo ===");
         System.Console.WriteLine("This saga can be initiated by either OrderConfirmed or InventoryReserved.");
         System.Console.WriteLine("It completes when both messages have been received.");
         System.Console.WriteLine();
-        System.Console.WriteLine("Choose initiation order:");
-        System.Console.WriteLine("1. OrderConfirmed first, then InventoryReserved");
-        System.Console.WriteLine("2. InventoryReserved first, then OrderConfirmed");
-        System.Console.WriteLine("3. Both at the same time");
-        System.Console.Write("Enter your choice (1-3): ");
 
-        var choice = System.Console.ReadLine();
+        string choice;
+        if (interactive)
+        {
+            System.Console.WriteLine("Choose initiation order:");
+            System.Console.WriteLine("1. OrderConfirmed first, then InventoryReserved");
+            System.Console.WriteLine("2. InventoryReserved first, then OrderConfirmed");
+            System.Console.WriteLine("3. Both at the same time");
+            System.Console.Write("Enter your choice (1-3): ");
+            choice = System.Console.ReadLine() ?? "1";
+        }
+        else
+        {
+            choice = sagaOrder.ToLowerInvariant() switch
+            {
+                "1" or "order-first" => "1",
+                "2" or "inventory-first" => "2",
+                "3" or "concurrent" => "3",
+                _ => "1"
+            };
+            System.Console.WriteLine($"Saga order: {sagaOrder} (choice {choice})");
+        }
+
         var orderId = Guid.NewGuid();
         var customerId = Guid.NewGuid();
+
+        await PublishSagaEventsAsync(bus, orderId, customerId, choice);
+
+        logger.LogInformation("State machine saga demo initiated - OrderId: {OrderId}", orderId);
+
+        System.Console.WriteLine();
+        System.Console.WriteLine("Events published! Watch the console for saga state transitions.");
+        System.Console.WriteLine("Waiting 3 seconds for saga to complete...");
+        await Task.Delay(3000);
+
+        if (interactive)
+        {
+            System.Console.WriteLine("Press any key to continue...");
+            System.Console.ReadKey();
+        }
+    }
+
+    private static async Task PublishSagaEventsAsync(
+        IBus bus, Guid orderId, Guid customerId, string choice)
+    {
+        var reservedItems = new List<ReservedItem>
+        {
+            new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+        };
 
         switch (choice)
         {
@@ -510,10 +610,7 @@ public static class Program
                 await bus.Publish(new InventoryReserved
                 {
                     OrderId = orderId,
-                    Items = new List<ReservedItem>
-                    {
-                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
-                    },
+                    Items = reservedItems,
                     ReservedAt = DateTime.UtcNow
                 });
                 break;
@@ -521,10 +618,7 @@ public static class Program
                 await bus.Publish(new InventoryReserved
                 {
                     OrderId = orderId,
-                    Items = new List<ReservedItem>
-                    {
-                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
-                    },
+                    Items = reservedItems,
                     ReservedAt = DateTime.UtcNow
                 });
                 await Task.Delay(1000);
@@ -546,10 +640,7 @@ public static class Program
                     bus.Publish(new InventoryReserved
                     {
                         OrderId = orderId,
-                        Items = new List<ReservedItem>
-                        {
-                            new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
-                        },
+                        Items = reservedItems,
                         ReservedAt = DateTime.UtcNow
                     }));
                 break;
@@ -565,22 +656,10 @@ public static class Program
                 await bus.Publish(new InventoryReserved
                 {
                     OrderId = orderId,
-                    Items = new List<ReservedItem>
-                    {
-                        new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
-                    },
+                    Items = reservedItems,
                     ReservedAt = DateTime.UtcNow
                 });
                 break;
         }
-
-        logger.LogInformation("State machine saga demo initiated - OrderId: {OrderId}", orderId);
-
-        System.Console.WriteLine();
-        System.Console.WriteLine("Events published! Watch the console for saga state transitions.");
-        System.Console.WriteLine("Waiting 3 seconds for saga to complete...");
-        await Task.Delay(3000);
-        System.Console.WriteLine("Press any key to continue...");
-        System.Console.ReadKey();
     }
 }
