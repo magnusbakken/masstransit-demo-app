@@ -244,6 +244,7 @@ public static class Program
             {
                 logging.AddConsole();
                 logging.SetMinimumLevel(LogLevel.Information);
+                logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
             });
 
     private static async Task DisplayMenuAsync(IServiceProvider services, ILogger logger)
