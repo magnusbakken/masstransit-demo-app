@@ -8,11 +8,13 @@ namespace MassTransitDemo.Features.ErrorHandling.Handlers;
 /// <summary>
 /// Handler for ProcessOrder commands that fails on the first attempt but succeeds on retry.
 /// Demonstrates retry mechanism with exponential backoff.
+/// MassTransit's UseMessageRetry reuses the same consumer instance for retries,
+/// so instance-level state persists across retry attempts for a given message.
 /// </summary>
 public sealed class ProcessOrderHandler : IConsumer<ProcessOrder>
 {
     private readonly ILogger<ProcessOrderHandler> _logger;
-    private static readonly ConcurrentDictionary<Guid, int> AttemptCounts = new();
+    private readonly ConcurrentDictionary<Guid, int> _attemptCounts = new();
 
     public ProcessOrderHandler(ILogger<ProcessOrderHandler> logger)
     {
@@ -23,7 +25,7 @@ public sealed class ProcessOrderHandler : IConsumer<ProcessOrder>
     {
         var message = context.Message;
         
-        var attemptCount = AttemptCounts.AddOrUpdate(message.OrderId, 1, (_, count) => count + 1);
+        var attemptCount = _attemptCounts.AddOrUpdate(message.OrderId, 1, (_, count) => count + 1);
 
         _logger.LogInformation(
             "Processing order OrderId: {OrderId}, CustomerId: {CustomerId}, Attempt: {Attempt}",
@@ -53,8 +55,7 @@ public sealed class ProcessOrderHandler : IConsumer<ProcessOrder>
         System.Console.WriteLine("✓ Order processed successfully!");
         System.Console.WriteLine();
 
-        // Clean up attempt count after successful processing
-        AttemptCounts.TryRemove(message.OrderId, out _);
+        _attemptCounts.TryRemove(message.OrderId, out _);
 
         return Task.CompletedTask;
     }
