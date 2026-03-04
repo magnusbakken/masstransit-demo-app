@@ -19,6 +19,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <UserSecretsId>b7df7736-d7f9-48c7-a44a-eac59538a28f</UserSecretsId>
   </PropertyGroup>
 
 </Project>
