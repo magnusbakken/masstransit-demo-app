@@ -52,3 +52,20 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# JetBrains Rider / IntelliJ-based IDEs
+.idea/
+*.sln.iml
+*.csproj.iml
+*.DotSettings.user
+*.DotSettings.user.*
+*.suo
+
+# Rider caches / local history (older Rider versions)
+**/.idea/**/workspace.xml
+**/.idea/**/tasks.xml
+**/.idea/**/dataSources*
+**/.idea/**/dataSources.local.xml
+**/.idea/**/httpRequests
+**/.idea/**/shelf
+**/.idea/**/contentModel.xml
