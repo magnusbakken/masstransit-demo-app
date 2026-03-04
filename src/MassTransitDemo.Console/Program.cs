@@ -180,6 +180,10 @@ public static class Program
 
                 services.AddMassTransit(x =>
                 {
+                    var username = Environment.UserName;
+                    x.SetEndpointNameFormatter(
+                        new PrefixedKebabCaseEndpointNameFormatter($"masstransitdemo.{username}"));
+
                     x.AddEntityFrameworkOutbox<OutboxDbContext>(o =>
                     {
                         o.UsePostgres();
