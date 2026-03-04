@@ -143,12 +143,7 @@ public static class Program
             .ConfigureAppConfiguration((context, config) =>
             {
                 config.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
-
-                if (context.HostingEnvironment.IsDevelopment())
-                {
-                    config.AddUserSecrets(typeof(Program).Assembly, optional: true, reloadOnChange: true);
-                }
-                
+                config.AddUserSecrets(typeof(Program).Assembly, optional: true, reloadOnChange: true);
                 config.AddEnvironmentVariables();
             })
             .ConfigureServices((context, services) =>
