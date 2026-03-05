@@ -1,5 +1,7 @@
 using MassTransit;
 using MassTransitDemo.Core.Messages;
+using MassTransitDemo.Features.Sagas.ConsumerSaga;
+using MassTransitDemo.Features.Sagas.StateMachineSaga;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -284,6 +286,8 @@ public static partial class Program
         string sagaOrder = "order-first", bool interactive = true)
     {
         var bus = services.GetRequiredService<IBus>();
+        var formatter = services.GetRequiredService<IEndpointNameFormatter>();
+        var sagaEndpoint = new Uri($"queue:{formatter.Saga<ShipmentPreparationSaga>()}");
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Consumer Saga Demo ===");
@@ -316,7 +320,7 @@ public static partial class Program
         var orderId = Guid.NewGuid();
         var customerId = Guid.NewGuid();
 
-        await PublishSagaEventsAsync(bus, orderId, customerId, choice);
+        await SendSagaEventsAsync(bus, sagaEndpoint, orderId, customerId, choice);
 
         logger.LogInformation("Consumer saga demo initiated - OrderId: {OrderId}", orderId);
 
@@ -337,6 +341,8 @@ public static partial class Program
         string sagaOrder = "order-first", bool interactive = true)
     {
         var bus = services.GetRequiredService<IBus>();
+        var formatter = services.GetRequiredService<IEndpointNameFormatter>();
+        var sagaEndpoint = new Uri($"queue:{formatter.Saga<ShipmentPreparationState>()}");
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== State Machine Saga Demo ===");
@@ -369,7 +375,7 @@ public static partial class Program
         var orderId = Guid.NewGuid();
         var customerId = Guid.NewGuid();
 
-        await PublishSagaEventsAsync(bus, orderId, customerId, choice);
+        await SendSagaEventsAsync(bus, sagaEndpoint, orderId, customerId, choice);
 
         logger.LogInformation("State machine saga demo initiated - OrderId: {OrderId}", orderId);
 
@@ -385,76 +391,48 @@ public static partial class Program
         }
     }
 
-    private static async Task PublishSagaEventsAsync(
-        IBus bus, Guid orderId, Guid customerId, string choice)
+    private static async Task SendSagaEventsAsync(
+        ISendEndpointProvider sendProvider, Uri sagaEndpoint,
+        Guid orderId, Guid customerId, string choice)
     {
-        var reservedItems = new List<ReservedItem>
+        var endpoint = await sendProvider.GetSendEndpoint(sagaEndpoint);
+
+        var orderConfirmed = new OrderConfirmed
         {
-            new ReservedItem { ProductId = "PROD-001", Quantity = 2 }
+            OrderId = orderId,
+            CustomerId = customerId,
+            ConfirmedAt = DateTime.UtcNow
+        };
+
+        var inventoryReserved = new InventoryReserved
+        {
+            OrderId = orderId,
+            Items = [new ReservedItem { ProductId = "PROD-001", Quantity = 2 }],
+            ReservedAt = DateTime.UtcNow
         };
 
         switch (choice)
         {
             case "1":
-                await bus.Publish(new OrderConfirmed
-                {
-                    OrderId = orderId,
-                    CustomerId = customerId,
-                    ConfirmedAt = DateTime.UtcNow
-                });
+                await endpoint.Send(orderConfirmed);
                 await Task.Delay(1000);
-                await bus.Publish(new InventoryReserved
-                {
-                    OrderId = orderId,
-                    Items = reservedItems,
-                    ReservedAt = DateTime.UtcNow
-                });
+                await endpoint.Send(inventoryReserved);
                 break;
             case "2":
-                await bus.Publish(new InventoryReserved
-                {
-                    OrderId = orderId,
-                    Items = reservedItems,
-                    ReservedAt = DateTime.UtcNow
-                });
+                await endpoint.Send(inventoryReserved);
                 await Task.Delay(1000);
-                await bus.Publish(new OrderConfirmed
-                {
-                    OrderId = orderId,
-                    CustomerId = customerId,
-                    ConfirmedAt = DateTime.UtcNow
-                });
+                await endpoint.Send(orderConfirmed);
                 break;
             case "3":
                 await Task.WhenAll(
-                    bus.Publish(new OrderConfirmed
-                    {
-                        OrderId = orderId,
-                        CustomerId = customerId,
-                        ConfirmedAt = DateTime.UtcNow
-                    }),
-                    bus.Publish(new InventoryReserved
-                    {
-                        OrderId = orderId,
-                        Items = reservedItems,
-                        ReservedAt = DateTime.UtcNow
-                    }));
+                    endpoint.Send(orderConfirmed),
+                    endpoint.Send(inventoryReserved));
                 break;
             default:
                 System.Console.WriteLine("Invalid choice. Using default (OrderConfirmed first).");
-                await bus.Publish(new OrderConfirmed
-                {
-                    OrderId = orderId,
-                    CustomerId = customerId,
-                    ConfirmedAt = DateTime.UtcNow
-                });
+                await endpoint.Send(orderConfirmed);
                 await Task.Delay(1000);
-                await bus.Publish(new InventoryReserved
-                {
-                    OrderId = orderId,
-                    Items = reservedItems,
-                    ReservedAt = DateTime.UtcNow
-                });
+                await endpoint.Send(inventoryReserved);
                 break;
         }
     }
