@@ -21,10 +21,7 @@ public sealed record TransportOptions
     public bool UseAzureServiceBusNativeDlq { get; init; } = true;
 
     /// <summary>
-    /// If true, saga state is stored inside the transport's message session
-    /// (<see cref="MassTransit.MessageSessionSagaRepository{TSaga}"/>).
-    /// Requires a session-capable transport (Azure Service Bus).
-    /// When false, an in-memory saga repository is used instead.
+    /// Saga persistence strategy. Defaults to <see cref="SagaPersistenceType.InMemory"/>.
     /// </summary>
-    public bool UseMessageSessionSagaRepository { get; init; }
+    public SagaPersistenceType SagaPersistenceType { get; init; } = SagaPersistenceType.InMemory;
 }

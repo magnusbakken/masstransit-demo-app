@@ -7,6 +7,7 @@ using MassTransitDemo.Features.Outbox.Data;
 using MassTransitDemo.Features.Outbox.Handlers;
 using MassTransitDemo.Features.Sagas;
 using MassTransitDemo.Features.Sagas.ConsumerSaga;
+using MassTransitDemo.Features.Sagas.Data;
 using MassTransitDemo.Features.Sagas.Handlers;
 using MassTransitDemo.Features.Sagas.StateMachineSaga;
 using MassTransitDemo.Transports;
@@ -46,11 +47,12 @@ public static partial class Program
             HelpName = "order"
         };
 
-        var messageSessionOption = new Option<bool?>("--message-session", "-m")
+        var sagaPersistenceOption = new Option<string?>("--saga-persistence", "-p")
         {
             Description =
-                "Use Azure Service Bus message sessions for saga state storage " +
-                "(MessageSessionSagaRepository). Overrides the value in appsettings.json."
+                "Saga persistence strategy: InMemory, MessageSession, EntityFramework. " +
+                "Overrides the value in appsettings.json.",
+            HelpName = "type"
         };
 
         var rootCommand = new RootCommand(
@@ -60,39 +62,44 @@ public static partial class Program
         rootCommand.Add(demoOption);
         rootCommand.Add(transportOption);
         rootCommand.Add(sagaOrderOption);
-        rootCommand.Add(messageSessionOption);
+        rootCommand.Add(sagaPersistenceOption);
 
         rootCommand.SetAction(async parseResult =>
         {
             var demo = parseResult.GetValue(demoOption);
             var transport = parseResult.GetValue(transportOption);
             var sagaOrder = parseResult.GetValue(sagaOrderOption) ?? "order-first";
-            var messageSession = parseResult.GetValue(messageSessionOption);
+            var sagaPersistence = parseResult.GetValue(sagaPersistenceOption);
 
-            await RunApplicationAsync(demo, transport, sagaOrder, messageSession);
+            await RunApplicationAsync(demo, transport, sagaOrder, sagaPersistence);
         });
 
         return await rootCommand.Parse(args).InvokeAsync();
     }
 
     private static async Task RunApplicationAsync(
-        string? demo, string? transport, string sagaOrder, bool? messageSession)
+        string? demo, string? transport, string sagaOrder, string? sagaPersistence)
     {
-        var host = CreateHostBuilder(transport, messageSession).Build();
+        var host = CreateHostBuilder(transport, sagaPersistence).Build();
 
         var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MassTransitDemo");
+        var transportOptions = host.Services.GetRequiredService<TransportOptions>();
         logger.LogInformation("MassTransit Demo Application starting...");
-        logger.LogInformation("Transport: {TransportType}",
-            host.Services.GetRequiredService<IConfiguration>()
-                .GetSection("Transport")["TransportType"]);
+        logger.LogInformation("Transport: {TransportType}", transportOptions.TransportType);
+        logger.LogInformation("Saga persistence: {SagaPersistenceType}", transportOptions.SagaPersistenceType);
 
-        // Ensure the EF Core outbox schema exists before starting the bus.
-        // The outbox middleware is applied to all consumer endpoints, so the DB tables
-        // must exist before the receive endpoints start polling them.
         using (var scope = host.Services.CreateScope())
         {
-            var dbContext = scope.ServiceProvider.GetRequiredService<OutboxDbContext>();
-            await dbContext.Database.EnsureCreatedAsync();
+            var outboxDb = scope.ServiceProvider.GetRequiredService<OutboxDbContext>();
+            await outboxDb.Database.EnsureCreatedAsync();
+
+            if (transportOptions.SagaPersistenceType == SagaPersistenceType.EntityFramework)
+            {
+                var sagaDb = scope.ServiceProvider.GetRequiredService<SagaDbContext>();
+                var script = sagaDb.Database.GenerateCreateScript()
+                    .Replace("CREATE TABLE", "CREATE TABLE IF NOT EXISTS");
+                await sagaDb.Database.ExecuteSqlRawAsync(script);
+            }
         }
 
         // Start the Generic Host so that MassTransit hosted services (bus + receive endpoints)
@@ -117,7 +124,7 @@ public static partial class Program
     }
 
     private static IHostBuilder CreateHostBuilder(
-        string? transportOverride = null, bool? messageSessionOverride = null) =>
+        string? transportOverride = null, string? sagaPersistenceOverride = null) =>
         Host.CreateDefaultBuilder()
             .ConfigureAppConfiguration((context, config) =>
             {
@@ -142,8 +149,12 @@ public static partial class Program
                         transportSection["AzureServiceBusConnectionString"],
                     RabbitMQConnectionString = transportSection["RabbitMQConnectionString"],
                     PostgreSQLConnectionString = transportSection["PostgreSQLConnectionString"],
-                    UseMessageSessionSagaRepository = messageSessionOverride
-                        ?? transportSection.GetValue<bool>("UseMessageSessionSagaRepository", false)
+                    SagaPersistenceType = sagaPersistenceOverride is not null
+                        ? Enum.Parse<SagaPersistenceType>(sagaPersistenceOverride, ignoreCase: true)
+                        : Enum.TryParse<SagaPersistenceType>(
+                              transportSection["SagaPersistenceType"], ignoreCase: true, out var parsed)
+                            ? parsed
+                            : SagaPersistenceType.InMemory
                 };
 
                 services.AddSingleton(transportOptions);
@@ -158,9 +169,17 @@ public static partial class Program
                     options.UseNpgsql(postgresConnectionString);
                 });
 
+                if (transportOptions.SagaPersistenceType == SagaPersistenceType.EntityFramework)
+                {
+                    services.AddDbContext<SagaDbContext>(options =>
+                    {
+                        options.UseNpgsql(postgresConnectionString);
+                    });
+                }
+
                 var transportConfigurator = TransportConfiguratorFactory.Create(transportOptions);
 
-                if (transportOptions.UseMessageSessionSagaRepository)
+                if (transportOptions.SagaPersistenceType == SagaPersistenceType.MessageSession)
                 {
                     services.AddSingleton(new SessionEndpointConfigurator(cfg =>
                     {
@@ -212,23 +231,41 @@ public static partial class Program
 
                     x.AddConsumer<ShipmentPreparedHandler>();
 
-                    if (transportOptions.UseMessageSessionSagaRepository)
+                    switch (transportOptions.SagaPersistenceType)
                     {
-                        x.AddSaga<ShipmentPreparationSaga>(typeof(ShipmentPreparationSagaDefinition))
-                            .MessageSessionRepository();
+                        case SagaPersistenceType.MessageSession:
+                            x.AddSaga<ShipmentPreparationSaga>(typeof(ShipmentPreparationSagaDefinition))
+                                .MessageSessionRepository();
+                            x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>(
+                                    typeof(ShipmentPreparationStateMachineDefinition))
+                                .MessageSessionRepository();
+                            break;
 
-                        x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>(
-                                typeof(ShipmentPreparationStateMachineDefinition))
-                            .MessageSessionRepository();
-                    }
-                    else
-                    {
-                        x.AddSaga<ShipmentPreparationSaga>(typeof(ShipmentPreparationSagaDefinition))
-                            .InMemoryRepository();
+                        case SagaPersistenceType.EntityFramework:
+                            x.AddSaga<ShipmentPreparationSaga>(typeof(ShipmentPreparationSagaDefinition))
+                                .EntityFrameworkRepository(r =>
+                                {
+                                    r.ConcurrencyMode = ConcurrencyMode.Pessimistic;
+                                    r.ExistingDbContext<SagaDbContext>();
+                                    r.UsePostgres();
+                                });
+                            x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>(
+                                    typeof(ShipmentPreparationStateMachineDefinition))
+                                .EntityFrameworkRepository(r =>
+                                {
+                                    r.ConcurrencyMode = ConcurrencyMode.Pessimistic;
+                                    r.ExistingDbContext<SagaDbContext>();
+                                    r.UsePostgres();
+                                });
+                            break;
 
-                        x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>(
-                                typeof(ShipmentPreparationStateMachineDefinition))
-                            .InMemoryRepository();
+                        default:
+                            x.AddSaga<ShipmentPreparationSaga>(typeof(ShipmentPreparationSagaDefinition))
+                                .InMemoryRepository();
+                            x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>(
+                                    typeof(ShipmentPreparationStateMachineDefinition))
+                                .InMemoryRepository();
+                            break;
                     }
 
                     x.AddConfigureEndpointsCallback((context, _, cfg) =>
