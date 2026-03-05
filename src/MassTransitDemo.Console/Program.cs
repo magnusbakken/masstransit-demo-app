@@ -250,18 +250,20 @@ public static class Program
 
                     if (transportOptions.UseMessageSessionSagaRepository)
                     {
-                        x.AddSaga<ShipmentPreparationSaga>()
+                        x.AddSaga<ShipmentPreparationSaga>(typeof(ShipmentPreparationSagaDefinition))
                             .MessageSessionRepository();
 
-                        x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>()
+                        x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>(
+                                typeof(ShipmentPreparationStateMachineDefinition))
                             .MessageSessionRepository();
                     }
                     else
                     {
-                        x.AddSaga<ShipmentPreparationSaga>()
+                        x.AddSaga<ShipmentPreparationSaga>(typeof(ShipmentPreparationSagaDefinition))
                             .InMemoryRepository();
 
-                        x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>()
+                        x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>(
+                                typeof(ShipmentPreparationStateMachineDefinition))
                             .InMemoryRepository();
                     }
 
