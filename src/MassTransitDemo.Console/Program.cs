@@ -6,6 +6,7 @@ using MassTransitDemo.Features.BasicMessaging.Handlers;
 using MassTransitDemo.Features.ErrorHandling.Handlers;
 using MassTransitDemo.Features.Outbox.Data;
 using MassTransitDemo.Features.Outbox.Handlers;
+using MassTransitDemo.Features.Sagas;
 using MassTransitDemo.Features.Sagas.ConsumerSaga;
 using MassTransitDemo.Features.Sagas.Handlers;
 using MassTransitDemo.Features.Sagas.StateMachineSaga;
@@ -182,6 +183,12 @@ public static class Program
 
                 var transportConfigurator = TransportConfiguratorFactory.Create(transportOptions);
 
+                services.AddSingleton(new SessionEndpointConfigurator(cfg =>
+                {
+                    if (cfg is IServiceBusReceiveEndpointConfigurator sb)
+                        sb.RequiresSession = true;
+                }));
+
                 services.AddMassTransit(x =>
                 {
                     var username = Environment.UserName;
@@ -222,10 +229,10 @@ public static class Program
                     x.AddConsumer<ShipmentPreparedHandler>();
 
                     x.AddSaga<ShipmentPreparationSaga>()
-                        .InMemoryRepository();
+                        .MessageSessionRepository();
 
                     x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>()
-                        .InMemoryRepository();
+                        .MessageSessionRepository();
 
                     x.AddConfigureEndpointsCallback((context, _, cfg) =>
                     {
