@@ -46,7 +46,20 @@ services:
       - azurite_data:/data
     command: "azurite --blobHost 0.0.0.0 --blobPort 10000 --queueHost 0.0.0.0 --queuePort 10001 --tableHost 0.0.0.0 --tablePort 10002"
 
+  grafana:
+    image: grafana/otel-lgtm:0.19.1
+    container_name: masstransit-demo-grafana
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+    volumes:
+      - grafana_data:/data
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+
 volumes:
   postgres_data:
   rabbitmq_data:
   azurite_data:
+  grafana_data:

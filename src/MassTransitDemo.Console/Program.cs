@@ -1,5 +1,7 @@
 using System.CommandLine;
 using MassTransit;
+using MassTransit.Logging;
+using MassTransit.Monitoring;
 using MassTransitDemo.Core.Transports;
 using MassTransitDemo.Features.BasicMessaging.Handlers;
 using MassTransitDemo.Features.ErrorHandling.Handlers;
@@ -16,6 +18,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using OpenTelemetry.Exporter;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 namespace MassTransitDemo.Console;
 
@@ -119,6 +125,9 @@ public static partial class Program
         }
         finally
         {
+            host.Services.GetService<TracerProvider>()?.ForceFlush();
+            host.Services.GetService<MeterProvider>()?.ForceFlush();
+
             await host.StopAsync();
         }
     }
@@ -288,6 +297,31 @@ public static partial class Program
 
                     transportConfigurator.Configure(x);
                 });
+
+                var otlpEndpoint = context.Configuration["OpenTelemetry:OtlpEndpoint"]
+                                   ?? "http://localhost:4317";
+
+                services.AddOpenTelemetry()
+                    .ConfigureResource(resource => resource
+                        .AddService(
+                            serviceName: "MassTransitDemo",
+                            serviceVersion: typeof(Program).Assembly.GetName().Version?.ToString()
+                                            ?? "1.0.0"))
+                    .WithTracing(tracing => tracing
+                        .AddSource(DiagnosticHeaders.DefaultListenerName)
+                        .AddOtlpExporter(o =>
+                        {
+                            o.Endpoint = new Uri(otlpEndpoint);
+                            o.Protocol = OtlpExportProtocol.Grpc;
+                        }))
+                    .WithMetrics(metrics => metrics
+                        .AddMeter(InstrumentationOptions.MeterName)
+                        .AddRuntimeInstrumentation()
+                        .AddOtlpExporter(o =>
+                        {
+                            o.Endpoint = new Uri(otlpEndpoint);
+                            o.Protocol = OtlpExportProtocol.Grpc;
+                        }));
             })
             .ConfigureLogging(logging =>
             {
