@@ -47,6 +47,13 @@ public static class Program
             HelpName = "order"
         };
 
+        var messageSessionOption = new Option<bool?>("--message-session", "-m")
+        {
+            Description =
+                "Use Azure Service Bus message sessions for saga state storage " +
+                "(MessageSessionSagaRepository). Overrides the value in appsettings.json."
+        };
+
         var rootCommand = new RootCommand(
             "MassTransit Demo — showcase of MassTransit 8.x messaging patterns. " +
             "Run without arguments to launch the interactive menu.");
@@ -54,22 +61,25 @@ public static class Program
         rootCommand.Add(demoOption);
         rootCommand.Add(transportOption);
         rootCommand.Add(sagaOrderOption);
+        rootCommand.Add(messageSessionOption);
 
         rootCommand.SetAction(async parseResult =>
         {
             var demo = parseResult.GetValue(demoOption);
             var transport = parseResult.GetValue(transportOption);
             var sagaOrder = parseResult.GetValue(sagaOrderOption) ?? "order-first";
+            var messageSession = parseResult.GetValue(messageSessionOption);
 
-            await RunApplicationAsync(demo, transport, sagaOrder);
+            await RunApplicationAsync(demo, transport, sagaOrder, messageSession);
         });
 
         return await rootCommand.Parse(args).InvokeAsync();
     }
 
-    private static async Task RunApplicationAsync(string? demo, string? transport, string sagaOrder)
+    private static async Task RunApplicationAsync(
+        string? demo, string? transport, string sagaOrder, bool? messageSession)
     {
-        var host = CreateHostBuilder(transport).Build();
+        var host = CreateHostBuilder(transport, messageSession).Build();
 
         var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("MassTransitDemo");
         logger.LogInformation("MassTransit Demo Application starting...");
@@ -142,7 +152,8 @@ public static class Program
         }
     }
 
-    private static IHostBuilder CreateHostBuilder(string? transportOverride = null) =>
+    private static IHostBuilder CreateHostBuilder(
+        string? transportOverride = null, bool? messageSessionOverride = null) =>
         Host.CreateDefaultBuilder()
             .ConfigureAppConfiguration((context, config) =>
             {
@@ -166,7 +177,9 @@ public static class Program
                     AzureServiceBusConnectionString =
                         transportSection["AzureServiceBusConnectionString"],
                     RabbitMQConnectionString = transportSection["RabbitMQConnectionString"],
-                    PostgreSQLConnectionString = transportSection["PostgreSQLConnectionString"]
+                    PostgreSQLConnectionString = transportSection["PostgreSQLConnectionString"],
+                    UseMessageSessionSagaRepository = messageSessionOverride
+                        ?? transportSection.GetValue<bool>("UseMessageSessionSagaRepository", false)
                 };
 
                 services.AddSingleton(transportOptions);
@@ -183,11 +196,18 @@ public static class Program
 
                 var transportConfigurator = TransportConfiguratorFactory.Create(transportOptions);
 
-                services.AddSingleton(new SessionEndpointConfigurator(cfg =>
+                if (transportOptions.UseMessageSessionSagaRepository)
                 {
-                    if (cfg is IServiceBusReceiveEndpointConfigurator sb)
-                        sb.RequiresSession = true;
-                }));
+                    services.AddSingleton(new SessionEndpointConfigurator(cfg =>
+                    {
+                        if (cfg is IServiceBusReceiveEndpointConfigurator sb)
+                            sb.RequiresSession = true;
+                    }));
+                }
+                else
+                {
+                    services.AddSingleton(SessionEndpointConfigurator.NoOp);
+                }
 
                 services.AddMassTransit(x =>
                 {
@@ -228,11 +248,22 @@ public static class Program
 
                     x.AddConsumer<ShipmentPreparedHandler>();
 
-                    x.AddSaga<ShipmentPreparationSaga>()
-                        .MessageSessionRepository();
+                    if (transportOptions.UseMessageSessionSagaRepository)
+                    {
+                        x.AddSaga<ShipmentPreparationSaga>()
+                            .MessageSessionRepository();
 
-                    x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>()
-                        .MessageSessionRepository();
+                        x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>()
+                            .MessageSessionRepository();
+                    }
+                    else
+                    {
+                        x.AddSaga<ShipmentPreparationSaga>()
+                            .InMemoryRepository();
+
+                        x.AddSagaStateMachine<ShipmentPreparationStateMachine, ShipmentPreparationState>()
+                            .InMemoryRepository();
+                    }
 
                     x.AddConfigureEndpointsCallback((context, _, cfg) =>
                     {
