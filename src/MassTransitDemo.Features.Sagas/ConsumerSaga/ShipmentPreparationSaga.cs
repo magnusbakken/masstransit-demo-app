@@ -11,10 +11,8 @@ namespace MassTransitDemo.Features.Sagas.ConsumerSaga;
 /// </summary>
 public sealed class ShipmentPreparationSaga :
     ISaga,
-    InitiatedBy<OrderConfirmed>,
-    InitiatedBy<InventoryReserved>,
-    Orchestrates<OrderConfirmed>,
-    Orchestrates<InventoryReserved>
+    InitiatedByOrOrchestrates<OrderConfirmed>,
+    InitiatedByOrOrchestrates<InventoryReserved>
 {
     public Guid CorrelationId { get; set; }
 
