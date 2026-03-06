@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="MassTransit" />
+    <PackageReference Include="FakeItEasy" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MassTransitDemo.Core\MassTransitDemo.Core.csproj" />
+    <ProjectReference Include="..\..\src\MassTransitDemo.Features.TopicFanout\MassTransitDemo.Features.TopicFanout.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -12,6 +12,7 @@ using MassTransitDemo.Features.Sagas.ConsumerSaga;
 using MassTransitDemo.Features.Sagas.Data;
 using MassTransitDemo.Features.Sagas.Handlers;
 using MassTransitDemo.Features.Sagas.StateMachineSaga;
+using MassTransitDemo.Features.TopicFanout.Handlers;
 using MassTransitDemo.Transports;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -32,9 +33,9 @@ public static partial class Program
         var demoOption = new Option<string?>("--demo", "-d")
         {
             Description =
-                "Demo to run non-interactively. Accepts a number (1-7) or a name: " +
+                "Demo to run non-interactively. Accepts a number (1-8) or a name: " +
                 "basic-messaging, handler-chain, error-handling, retry, outbox, " +
-                "consumer-saga, state-machine-saga.",
+                "consumer-saga, state-machine-saga, topic-fanout.",
             HelpName = "name"
         };
 
@@ -239,6 +240,9 @@ public static partial class Program
                     x.AddConsumer<OrderCreatedHandler>();
 
                     x.AddConsumer<ShipmentPreparedHandler>();
+
+                    x.AddConsumer<ShippingNotificationHandler>();
+                    x.AddConsumer<WarehouseUpdateHandler>();
 
                     switch (transportOptions.SagaPersistenceType)
                     {
