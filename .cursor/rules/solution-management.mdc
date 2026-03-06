@@ -1,6 +1,6 @@
 ---
 description: This file provides guidelines for maintaining .NET solutions with consistent SDK versions, shared metadata, and centralized package management.
-globs: *.sln, global.json, Directory.Build.props, Directory.Package.props, *.csproj, *.fsproj
+globs: *.sln, *.slnx, global.json, Directory.Build.props, Directory.Package.props, *.csproj, *.fsproj, README.md
 ---
 # Cursor Rules File: Best Practices for .NET Solution Management
 
@@ -97,6 +97,28 @@ Package Management:
           </packageSources>
         </configuration>
         ```
+
+README Synchronization:
+  - The README.md in the repository root documents every implemented use case
+  - When a feature is added:
+      - Add a new numbered use case section under "## Use Cases" describing the messaging
+        pattern, message flow (with ASCII diagram), and all consumers involved
+      - Add the new feature project to the "## Project Structure" tree
+      - If a new test project is added, include it in the tree as well
+      - If new CLI options or menu entries are introduced, update the CLI Options table and
+        the description of the interactive menu
+  - When a feature is modified:
+      - Update the corresponding use case section to reflect the current behaviour, message
+        flow, and consumer names
+      - If configuration options changed, update the Configuration section
+  - When a feature is removed:
+      - Remove its use case section and renumber the remaining use cases
+      - Remove it from the Project Structure tree
+      - Remove any related CLI options, menu entries, or configuration references
+  - When transports, saga persistence options, or infrastructure services change:
+      - Update the relevant tables in Setup, Configuration, and Saga Persistence Options
+  - Commit README changes in the same PR as the code change so documentation never drifts
+    from the implementation
 
 Maintenance:
   - Regular auditing:
