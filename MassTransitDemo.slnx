@@ -20,6 +20,7 @@
     <Project Path="src/MassTransitDemo.Features.ErrorHandling/MassTransitDemo.Features.ErrorHandling.csproj" />
     <Project Path="src/MassTransitDemo.Features.Outbox/MassTransitDemo.Features.Outbox.csproj" />
     <Project Path="src/MassTransitDemo.Features.Sagas/MassTransitDemo.Features.Sagas.csproj" />
+    <Project Path="src/MassTransitDemo.Features.TopicFanout/MassTransitDemo.Features.TopicFanout.csproj" />
     <Project Path="src/MassTransitDemo.Transports/MassTransitDemo.Transports.csproj" />
   </Folder>
   <Folder Name="/tests/">
@@ -27,5 +28,6 @@
     <Project Path="tests/MassTransitDemo.Tests.ErrorHandling/MassTransitDemo.Tests.ErrorHandling.csproj" />
     <Project Path="tests/MassTransitDemo.Tests.Outbox/MassTransitDemo.Tests.Outbox.csproj" />
     <Project Path="tests/MassTransitDemo.Tests.Sagas/MassTransitDemo.Tests.Sagas.csproj" />
+    <Project Path="tests/MassTransitDemo.Tests.TopicFanout/MassTransitDemo.Tests.TopicFanout.csproj" />
   </Folder>
 </Solution>

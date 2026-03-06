@@ -1,7 +1,10 @@
 using MassTransit;
 using MassTransitDemo.Core.Messages;
+using MassTransitDemo.Features.ErrorHandling.Handlers;
+using MassTransitDemo.Features.Outbox.Handlers;
 using MassTransitDemo.Features.Sagas.ConsumerSaga;
 using MassTransitDemo.Features.Sagas.StateMachineSaga;
+using MassTransitDemo.Features.TopicFanout.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -36,14 +39,18 @@ public static partial class Program
             case "7" or "state-machine-saga":
                 await HandleStateMachineSagaAsync(services, logger, sagaOrder, interactive: false);
                 break;
+            case "8" or "topic-fanout":
+                await HandleTopicFanoutAsync(services, logger, interactive: false);
+                break;
             default:
                 System.Console.Error.WriteLine(
-                    $"Unknown demo '{demo}'. Valid values: 1-7 or basic-messaging, " +
-                    "handler-chain, error-handling, retry, outbox, consumer-saga, state-machine-saga.");
+                    $"Unknown demo '{demo}'. Valid values: 1-8 or basic-messaging, " +
+                    "handler-chain, error-handling, retry, outbox, consumer-saga, " +
+                    "state-machine-saga, topic-fanout.");
                 break;
         }
     }
-    
+
     private static async Task DisplayMenuAsync(IServiceProvider services, ILogger logger)
     {
         while (true)
@@ -54,11 +61,12 @@ public static partial class Program
             System.Console.WriteLine("Select a feature to test:");
             System.Console.WriteLine("1. Basic Messaging - Publish CustomerCreated event");
             System.Console.WriteLine("2. Handler Chain - Trigger CustomerCreated → SendVerificationEmail → EmailSent → WelcomeEmailSent");
-            System.Console.WriteLine("3. Error Handling - ProcessPayment (fails, goes to DLQ)");
-            System.Console.WriteLine("4. Retry Mechanism - ProcessOrder (fails first time, succeeds on retry)");
-            System.Console.WriteLine("5. Transactional Outbox - CreateOrder (database + event atomically)");
+            System.Console.WriteLine("3. Error Handling - Send ProcessPayment command (fails, goes to DLQ)");
+            System.Console.WriteLine("4. Retry Mechanism - Send ProcessOrder command (fails first time, succeeds on retry)");
+            System.Console.WriteLine("5. Transactional Outbox - Send CreateOrder command (database + event atomically)");
             System.Console.WriteLine("6. Consumer Saga - Shipment Preparation (OrderConfirmed or InventoryReserved)");
             System.Console.WriteLine("7. State Machine Saga - Shipment Preparation (OrderConfirmed or InventoryReserved)");
+            System.Console.WriteLine("8. Topic Fan-out - Publish OrderShipped event to two independent consumers");
             System.Console.WriteLine("0. Exit");
             System.Console.WriteLine();
             System.Console.Write("Enter your choice: ");
@@ -90,6 +98,9 @@ public static partial class Program
                     break;
                 case "7":
                     await HandleStateMachineSagaAsync(services, logger);
+                    break;
+                case "8":
+                    await HandleTopicFanoutAsync(services, logger);
                     break;
                 default:
                     System.Console.WriteLine();
@@ -142,6 +153,7 @@ public static partial class Program
         System.Console.WriteLine("=== Handler Chain Demo ===");
         System.Console.WriteLine("Publishing CustomerCreated event to trigger the chain...");
         System.Console.WriteLine("Chain: CustomerCreated → SendVerificationEmail → EmailSent → WelcomeEmailSent");
+        System.Console.WriteLine("Events are published (fan-out); commands are sent point-to-point.");
         System.Console.WriteLine();
 
         var customerCreated = new CustomerCreated
@@ -171,10 +183,11 @@ public static partial class Program
         IServiceProvider services, ILogger logger, bool interactive = true)
     {
         var bus = services.GetRequiredService<IBus>();
+        var formatter = services.GetRequiredService<IEndpointNameFormatter>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Error Handling Demo ===");
-        System.Console.WriteLine("Publishing ProcessPayment command that will fail...");
+        System.Console.WriteLine("Sending ProcessPayment command that will fail...");
         System.Console.WriteLine("This message will be moved to the dead-letter queue after failure.");
         System.Console.WriteLine();
 
@@ -186,12 +199,15 @@ public static partial class Program
             PaymentMethod = "Credit Card"
         };
 
-        await bus.Publish(processPayment);
+        // Send point-to-point — ProcessPayment is a command with one specific handler.
+        var address = new Uri($"queue:{formatter.Consumer<ProcessPaymentHandler>()}");
+        var endpoint = await bus.GetSendEndpoint(address);
+        await endpoint.Send(processPayment);
 
-        logger.LogInformation("ProcessPayment command published - PaymentId: {PaymentId}",
+        logger.LogInformation("ProcessPayment command sent - PaymentId: {PaymentId}",
             processPayment.PaymentId);
 
-        System.Console.WriteLine("Command published! The handler will fail and the message will be moved to DLQ.");
+        System.Console.WriteLine("Command sent! The handler will fail and the message will be moved to DLQ.");
         System.Console.WriteLine("Check your transport's dead-letter queue to see the failed message.");
 
         if (interactive)
@@ -205,10 +221,11 @@ public static partial class Program
         IServiceProvider services, ILogger logger, bool interactive = true)
     {
         var bus = services.GetRequiredService<IBus>();
+        var formatter = services.GetRequiredService<IEndpointNameFormatter>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Retry Mechanism Demo ===");
-        System.Console.WriteLine("Publishing ProcessOrder command that will fail first time, succeed on retry...");
+        System.Console.WriteLine("Sending ProcessOrder command that will fail first time, succeed on retry...");
         System.Console.WriteLine("Retry policy: Exponential backoff (5 attempts max)");
         System.Console.WriteLine();
 
@@ -219,11 +236,14 @@ public static partial class Program
             TotalAmount = 149.99m
         };
 
-        await bus.Publish(processOrder);
+        // Send point-to-point — ProcessOrder is a command with one specific handler.
+        var address = new Uri($"queue:{formatter.Consumer<ProcessOrderHandler>()}");
+        var endpoint = await bus.GetSendEndpoint(address);
+        await endpoint.Send(processOrder);
 
-        logger.LogInformation("ProcessOrder command published - OrderId: {OrderId}", processOrder.OrderId);
+        logger.LogInformation("ProcessOrder command sent - OrderId: {OrderId}", processOrder.OrderId);
 
-        System.Console.WriteLine("Command published! Watch for:");
+        System.Console.WriteLine("Command sent! Watch for:");
         System.Console.WriteLine("1. First attempt will fail (intentional)");
         System.Console.WriteLine("2. Automatic retry with exponential backoff");
         System.Console.WriteLine("3. Second attempt will succeed");
@@ -242,10 +262,11 @@ public static partial class Program
         IServiceProvider services, ILogger logger, bool interactive = true)
     {
         var bus = services.GetRequiredService<IBus>();
+        var formatter = services.GetRequiredService<IEndpointNameFormatter>();
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Transactional Outbox Demo ===");
-        System.Console.WriteLine("Publishing CreateOrder command...");
+        System.Console.WriteLine("Sending CreateOrder command...");
         System.Console.WriteLine("This will update the database and publish OrderCreated event atomically.");
         System.Console.WriteLine();
 
@@ -261,11 +282,14 @@ public static partial class Program
             }
         };
 
-        await bus.Publish(createOrder);
+        // Send point-to-point — CreateOrder is a command with one specific handler.
+        var address = new Uri($"queue:{formatter.Consumer<CreateOrderHandler>()}");
+        var endpoint = await bus.GetSendEndpoint(address);
+        await endpoint.Send(createOrder);
 
-        logger.LogInformation("CreateOrder command published - OrderId: {OrderId}", createOrder.OrderId);
+        logger.LogInformation("CreateOrder command sent - OrderId: {OrderId}", createOrder.OrderId);
 
-        System.Console.WriteLine("Command published! The handler will:");
+        System.Console.WriteLine("Command sent! The handler will:");
         System.Console.WriteLine("1. Create order in database");
         System.Console.WriteLine("2. Publish OrderCreated event (stored in outbox)");
         System.Console.WriteLine("3. Commit transaction atomically");
@@ -383,6 +407,51 @@ public static partial class Program
         System.Console.WriteLine("Events published! Watch the console for saga state transitions.");
         System.Console.WriteLine("Waiting 3 seconds for saga to complete...");
         await Task.Delay(3000);
+
+        if (interactive)
+        {
+            System.Console.WriteLine("Press any key to continue...");
+            System.Console.ReadKey();
+        }
+    }
+
+    private static async Task HandleTopicFanoutAsync(
+        IServiceProvider services, ILogger logger, bool interactive = true)
+    {
+        var bus = services.GetRequiredService<IBus>();
+
+        System.Console.WriteLine();
+        System.Console.WriteLine("=== Topic Fan-out Demo ===");
+        System.Console.WriteLine("Publishing OrderShipped event to demonstrate pub/sub fan-out.");
+        System.Console.WriteLine("Two independent consumers will each receive their own copy:");
+        System.Console.WriteLine("  • ShippingNotificationHandler — notifies the customer");
+        System.Console.WriteLine("  • WarehouseUpdateHandler      — updates warehouse records");
+        System.Console.WriteLine();
+        System.Console.WriteLine("Transport topology:");
+        System.Console.WriteLine("  RabbitMQ      — fanout exchange binds to two separate queues");
+        System.Console.WriteLine("  PostgreSQL    — topic with two independent subscriptions");
+        System.Console.WriteLine("  Azure Svc Bus — topic with two independent subscriptions");
+        System.Console.WriteLine();
+
+        var orderShipped = new OrderShipped
+        {
+            OrderId = Guid.NewGuid(),
+            CustomerId = Guid.NewGuid(),
+            ShippedAt = DateTimeOffset.UtcNow,
+            TrackingNumber = $"TRACK-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}"
+        };
+
+        // Publish (not Send) — OrderShipped is an event. The transport routes it to
+        // every consumer subscribed to this message type via its topic/exchange.
+        await bus.Publish(orderShipped);
+
+        logger.LogInformation(
+            "OrderShipped event published - OrderId: {OrderId}, Tracking: {TrackingNumber}",
+            orderShipped.OrderId,
+            orderShipped.TrackingNumber);
+
+        System.Console.WriteLine("Event published! Waiting 2 seconds for both handlers to complete...");
+        await Task.Delay(2000);
 
         if (interactive)
         {

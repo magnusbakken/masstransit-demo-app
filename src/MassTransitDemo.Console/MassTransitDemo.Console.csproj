@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\MassTransitDemo.Core\MassTransitDemo.Core.csproj" />
@@ -7,6 +7,7 @@
     <ProjectReference Include="..\MassTransitDemo.Features.ErrorHandling\MassTransitDemo.Features.ErrorHandling.csproj" />
     <ProjectReference Include="..\MassTransitDemo.Features.Outbox\MassTransitDemo.Features.Outbox.csproj" />
     <ProjectReference Include="..\MassTransitDemo.Features.Sagas\MassTransitDemo.Features.Sagas.csproj" />
+    <ProjectReference Include="..\MassTransitDemo.Features.TopicFanout\MassTransitDemo.Features.TopicFanout.csproj" />
   </ItemGroup>
 
   <ItemGroup>

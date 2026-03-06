@@ -5,21 +5,21 @@ using Microsoft.Extensions.Logging;
 namespace MassTransitDemo.Features.BasicMessaging.Handlers;
 
 /// <summary>
-/// Handler for CustomerCreated events. 
-/// For basic messaging demo: Simply prints output.
-/// For handler chain demo: Publishes SendVerificationEmail command to trigger the chain.
+/// Handler for the CustomerCreated event (pub/sub — arrives via topic fan-out).
+/// Sends the SendVerificationEmail command point-to-point to its dedicated queue,
+/// which starts the handler chain.
 /// </summary>
 public sealed class CustomerCreatedHandler : IConsumer<CustomerCreated>
 {
     private readonly ILogger<CustomerCreatedHandler> _logger;
-    private readonly IPublishEndpoint _publishEndpoint;
+    private readonly IEndpointNameFormatter _endpointNameFormatter;
 
     public CustomerCreatedHandler(
         ILogger<CustomerCreatedHandler> logger,
-        IPublishEndpoint publishEndpoint)
+        IEndpointNameFormatter endpointNameFormatter)
     {
         _logger = logger;
-        _publishEndpoint = publishEndpoint;
+        _endpointNameFormatter = endpointNameFormatter;
     }
 
     public async Task Consume(ConsumeContext<CustomerCreated> context)
@@ -40,17 +40,18 @@ public sealed class CustomerCreatedHandler : IConsumer<CustomerCreated>
         System.Console.WriteLine($"Created At: {message.CreatedAt:yyyy-MM-dd HH:mm:ss}");
         System.Console.WriteLine();
 
-        // For handler chain demo: Publish SendVerificationEmail command to continue the chain
-        // This will be triggered when CustomerCreated is published as part of the chain demo
-        // Note: In a production scenario, you might use a flag or separate event types
-        // to distinguish between basic messaging and chain scenarios
-        await _publishEndpoint.Publish(new SendVerificationEmail
+        // Send the command point-to-point to the SendVerificationEmail handler's queue.
+        // Using Send (not Publish) because SendVerificationEmail is a command — it has
+        // exactly one intended receiver, so point-to-point delivery is correct.
+        var address = new Uri($"queue:{_endpointNameFormatter.Consumer<SendVerificationEmailHandler>()}");
+        var endpoint = await context.GetSendEndpoint(address);
+        await endpoint.Send(new SendVerificationEmail
         {
             CustomerId = message.CustomerId,
             Email = message.Email,
             CustomerName = message.CustomerName
         });
 
-        _logger.LogInformation("SendVerificationEmail command published for CustomerId: {CustomerId}", message.CustomerId);
+        _logger.LogInformation("SendVerificationEmail command sent for CustomerId: {CustomerId}", message.CustomerId);
     }
 }
