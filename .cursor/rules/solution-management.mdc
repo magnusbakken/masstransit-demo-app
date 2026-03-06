@@ -1,6 +1,6 @@
 ---
 description: This file provides guidelines for maintaining .NET solutions with consistent SDK versions, shared metadata, and centralized package management.
-globs: *.sln, global.json, Directory.Build.props, Directory.Package.props, *.csproj, *.fsproj
+globs: *.sln, *.slnx, global.json, Directory.Build.props, Directory.Package.props, *.csproj, *.fsproj, README.md
 ---
 # Cursor Rules File: Best Practices for .NET Solution Management
 
@@ -97,6 +97,11 @@ Package Management:
           </packageSources>
         </configuration>
         ```
+
+README Synchronization:
+  - README.md documents every implemented use case, the project structure, and configuration options
+  - When features are added, modified, or removed, update README.md to match
+  - Commit README changes in the same PR as the code change
 
 Maintenance:
   - Regular auditing:
