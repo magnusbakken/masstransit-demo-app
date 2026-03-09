@@ -15,6 +15,7 @@
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/MassTransitDemo.Console/MassTransitDemo.Console.csproj" />
+    <Project Path="src/MassTransitDemo.Worker/MassTransitDemo.Worker.csproj" />
     <Project Path="src/MassTransitDemo.Core/MassTransitDemo.Core.csproj" />
     <Project Path="src/MassTransitDemo.Features.BasicMessaging/MassTransitDemo.Features.BasicMessaging.csproj" />
     <Project Path="src/MassTransitDemo.Features.ErrorHandling/MassTransitDemo.Features.ErrorHandling.csproj" />

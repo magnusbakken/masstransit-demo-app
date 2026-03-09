@@ -173,12 +173,23 @@ dotnet build
 
 ### Run
 
+The application is split into two hosts that run side by side:
+
+**Terminal 1 — Worker** (hosts all consumers and sagas, runs continuously):
+
+```bash
+cd src/MassTransitDemo.Worker
+dotnet run
+```
+
+**Terminal 2 — Console** (triggers demos, interactive or non-interactive):
+
 ```bash
 cd src/MassTransitDemo.Console
 dotnet run
 ```
 
-This launches an interactive menu where you can select any use case by number.
+The Console launches an interactive menu. Select a demo by number; the Worker in Terminal 1 processes the resulting messages and prints handler output.
 
 ### Run Non-interactively
 
@@ -191,18 +202,28 @@ Valid demo values: `1`–`8`, or `basic-messaging`, `handler-chain`, `error-hand
 
 ### CLI Options
 
+**Console** (`src/MassTransitDemo.Console`):
+
 | Option | Short | Description |
 |---|---|---|
 | `--demo` | `-d` | Run a specific demo non-interactively |
 | `--transport` | `-t` | Override transport (`RabbitMQ`, `AzureServiceBus`, `PostgreSQL`) |
 | `--saga-order` | `-s` | Saga event arrival order (`order-first`, `inventory-first`, `concurrent`) |
+
+**Worker** (`src/MassTransitDemo.Worker`):
+
+| Option | Short | Description |
+|---|---|---|
+| `--transport` | `-t` | Override transport (`RabbitMQ`, `AzureServiceBus`, `PostgreSQL`) |
 | `--saga-persistence` | `-p` | Saga persistence strategy (`InMemory`, `MessageSession`, `EntityFramework`) |
+
+Both processes must use the same transport so their queue names match.
 
 ## Configuration
 
 ### Transport Selection
 
-Set the transport in `src/MassTransitDemo.Console/appsettings.json`:
+Set the transport in both `src/MassTransitDemo.Console/appsettings.json` and `src/MassTransitDemo.Worker/appsettings.json` (or use `--transport` CLI flag on both processes):
 
 ```json
 {
@@ -244,7 +265,8 @@ Start the Grafana LGTM stack to receive telemetry: `docker compose up -d grafana
 
 ```
 src/
-├── MassTransitDemo.Console/                  # Host, DI, menu, CLI
+├── MassTransitDemo.Console/                  # CLI trigger — publishes/sends messages, interactive menu
+├── MassTransitDemo.Worker/                   # Consumer host — runs all handlers and sagas continuously
 ├── MassTransitDemo.Core/                     # Shared message contracts & transport abstractions
 ├── MassTransitDemo.Transports/               # Transport configurators (RabbitMQ, PostgreSQL, ASB)
 ├── MassTransitDemo.Features.BasicMessaging/  # Use cases 1 & 2 — basic pub/sub, handler chain
