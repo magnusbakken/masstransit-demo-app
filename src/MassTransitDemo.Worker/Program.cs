@@ -20,6 +20,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Exporter;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -280,6 +281,12 @@ public static class Program
                     .WithMetrics(metrics => metrics
                         .AddMeter(InstrumentationOptions.MeterName)
                         .AddRuntimeInstrumentation()
+                        .AddOtlpExporter(o =>
+                        {
+                            o.Endpoint = new Uri(otlpEndpoint);
+                            o.Protocol = OtlpExportProtocol.Grpc;
+                        }))
+                    .WithLogging(logging => logging
                         .AddOtlpExporter(o =>
                         {
                             o.Endpoint = new Uri(otlpEndpoint);
