@@ -266,8 +266,17 @@ public static partial class Program
 
         System.Console.WriteLine();
         System.Console.WriteLine("=== Transactional Outbox Demo ===");
+        System.Console.WriteLine();
+        System.Console.WriteLine("How it works (MassTransit EF Core outbox):");
+        System.Console.WriteLine("  CreateOrderConsumerDefinition configures two middleware layers:");
+        System.Console.WriteLine("    UseMessageRetry       — retries on transient failures");
+        System.Console.WriteLine("    UseEntityFrameworkOutbox — wraps the consumer pipeline so that:");
+        System.Console.WriteLine("      • InboxState row is written (idempotent / exactly-once consumer)");
+        System.Console.WriteLine("      • context.Publish() writes to OutboxMessage — not the broker");
+        System.Console.WriteLine("      • SaveChangesAsync commits Orders + OutboxMessage atomically");
+        System.Console.WriteLine("      • OutboxDeliveryService later forwards OutboxMessage to broker");
+        System.Console.WriteLine();
         System.Console.WriteLine("Sending CreateOrder command...");
-        System.Console.WriteLine("This will update the database and publish OrderCreated event atomically.");
         System.Console.WriteLine();
 
         var createOrder = new CreateOrder
@@ -282,21 +291,22 @@ public static partial class Program
             }
         };
 
-        // Send point-to-point — CreateOrder is a command with one specific handler.
+        // Send point-to-point — CreateOrder is a command, one handler owns it.
         var address = new Uri($"queue:{formatter.Consumer<CreateOrderHandler>()}");
         var endpoint = await bus.GetSendEndpoint(address);
         await endpoint.Send(createOrder);
 
-        logger.LogInformation("CreateOrder command sent - OrderId: {OrderId}", createOrder.OrderId);
+        logger.LogInformation("CreateOrder command sent — OrderId: {OrderId}", createOrder.OrderId);
 
-        System.Console.WriteLine("Command sent! The handler will:");
-        System.Console.WriteLine("1. Create order in database");
-        System.Console.WriteLine("2. Publish OrderCreated event (stored in outbox)");
-        System.Console.WriteLine("3. Commit transaction atomically");
-        System.Console.WriteLine("4. Outbox delivery service will deliver event to broker");
+        System.Console.WriteLine("Command sent. Inside CreateOrderHandler the consumer outbox will:");
+        System.Console.WriteLine("  1. Write the Orders row to PostgreSQL");
+        System.Console.WriteLine("  2. Stage OrderCreated in the OutboxMessage table");
+        System.Console.WriteLine("  3. Commit both in one transaction (SaveChangesAsync)");
+        System.Console.WriteLine("  4. OutboxDeliveryService delivers OrderCreated to the broker");
+        System.Console.WriteLine("  5. OrderCreatedHandler receives it and confirms delivery");
         System.Console.WriteLine();
-        System.Console.WriteLine("Waiting 3 seconds for outbox delivery...");
-        await Task.Delay(3000);
+        System.Console.WriteLine("Waiting 5 seconds for outbox delivery...");
+        await Task.Delay(5000);
 
         if (interactive)
         {

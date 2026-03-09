@@ -236,7 +236,7 @@ public static partial class Program
                         });
                     });
 
-                    x.AddConsumer<CreateOrderHandler>();
+                    x.AddConsumer<CreateOrderHandler, CreateOrderConsumerDefinition>();
                     x.AddConsumer<OrderCreatedHandler>();
 
                     x.AddConsumer<ShipmentPreparedHandler>();
@@ -280,11 +280,6 @@ public static partial class Program
                                 .InMemoryRepository();
                             break;
                     }
-
-                    x.AddConfigureEndpointsCallback((context, _, cfg) =>
-                    {
-                        cfg.UseEntityFrameworkOutbox<OutboxDbContext>(context);
-                    });
 
                     if (transportOptions.TransportType == TransportType.AzureServiceBus &&
                         transportOptions.UseAzureServiceBusNativeDlq)
