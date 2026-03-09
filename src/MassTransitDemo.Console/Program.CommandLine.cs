@@ -4,7 +4,6 @@ using MassTransitDemo.Features.ErrorHandling.Handlers;
 using MassTransitDemo.Features.Outbox.Handlers;
 using MassTransitDemo.Features.Sagas.ConsumerSaga;
 using MassTransitDemo.Features.Sagas.StateMachineSaga;
-using MassTransitDemo.Features.TopicFanout.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 

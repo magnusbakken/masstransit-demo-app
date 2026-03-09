@@ -30,12 +30,16 @@ Standard commands per `README.md`:
 
 - **Build:** `dotnet build`
 - **Test:** `dotnet test` — all tests use in-memory fakes, no Docker required
-- **Run:** `dotnet run --project src/MassTransitDemo.Console` (must run from repo root, or `cd src/MassTransitDemo.Console && dotnet run`)
+- **Run (two terminals required):**
+  - Terminal 1 — Worker (consumer host): `cd src/MassTransitDemo.Worker && dotnet run`
+  - Terminal 2 — Console (trigger): `cd src/MassTransitDemo.Console && dotnet run`
 
 ### Gotchas
 
-- The console app reads `appsettings.json` relative to the working directory. If you run `dotnet run --project src/MassTransitDemo.Console` from the repo root, it fails with `FileNotFoundException` for `appsettings.json`. Run from the project directory instead: `cd src/MassTransitDemo.Console && dotnet run`.
-- The app uses `Console.ReadKey()` for interactive menus, which throws `InvalidOperationException` when stdin is piped. For automated testing, pipe menu choices via `printf '1\n' | dotnet run` — the event will be published successfully before the `ReadKey` exception.
+- Both apps read `appsettings.json` relative to the working directory. Run each from its own project directory (e.g. `cd src/MassTransitDemo.Worker && dotnet run`), not from the repo root.
+- The Console uses `Console.ReadKey()` for interactive menus, which throws `InvalidOperationException` when stdin is piped. For automated testing, pipe menu choices via `printf '1\n' | dotnet run` — the event will be published successfully before the `ReadKey` exception.
+- The Worker must be running before triggering demos from the Console; otherwise published/sent messages queue up but are not consumed.
+- `--saga-persistence` is a Worker CLI option (not Console). Pass it to the Worker to select InMemory, MessageSession, or EntityFramework saga storage.
 - `TreatWarningsAsErrors` is enabled in `Directory.Build.props` — all compiler warnings are errors.
 - The `MassTransitDemo.Tests.Outbox` project currently reports 0 tests (TUnit source generation issue) — this is a pre-existing condition, not an environment problem.
 - Azurite is defined in `docker-compose.yml` but unused by the codebase. No need to start it.

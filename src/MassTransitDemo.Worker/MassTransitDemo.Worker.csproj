@@ -3,12 +3,15 @@
   <ItemGroup>
     <ProjectReference Include="..\MassTransitDemo.Core\MassTransitDemo.Core.csproj" />
     <ProjectReference Include="..\MassTransitDemo.Transports\MassTransitDemo.Transports.csproj" />
+    <ProjectReference Include="..\MassTransitDemo.Features.BasicMessaging\MassTransitDemo.Features.BasicMessaging.csproj" />
     <ProjectReference Include="..\MassTransitDemo.Features.ErrorHandling\MassTransitDemo.Features.ErrorHandling.csproj" />
     <ProjectReference Include="..\MassTransitDemo.Features.Outbox\MassTransitDemo.Features.Outbox.csproj" />
     <ProjectReference Include="..\MassTransitDemo.Features.Sagas\MassTransitDemo.Features.Sagas.csproj" />
+    <ProjectReference Include="..\MassTransitDemo.Features.TopicFanout\MassTransitDemo.Features.TopicFanout.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="MassTransit.Azure.ServiceBus.Core" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" />
@@ -27,7 +30,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <UserSecretsId>b7df7736-d7f9-48c7-a44a-eac59538a28f</UserSecretsId>
+    <UserSecretsId>c3e8f2a1-9b4d-4e7f-a2c5-8d1b6e3f7a9c</UserSecretsId>
   </PropertyGroup>
 
 </Project>
