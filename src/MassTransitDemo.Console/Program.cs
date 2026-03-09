@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using OpenTelemetry.Exporter;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -91,6 +92,7 @@ public static partial class Program
         {
             host.Services.GetService<TracerProvider>()?.ForceFlush();
             host.Services.GetService<MeterProvider>()?.ForceFlush();
+            host.Services.GetService<LoggerProvider>()?.ForceFlush();
 
             await host.StopAsync();
         }
@@ -158,6 +160,12 @@ public static partial class Program
                     .WithMetrics(metrics => metrics
                         .AddMeter(InstrumentationOptions.MeterName)
                         .AddRuntimeInstrumentation()
+                        .AddOtlpExporter(o =>
+                        {
+                            o.Endpoint = new Uri(otlpEndpoint);
+                            o.Protocol = OtlpExportProtocol.Grpc;
+                        }))
+                    .WithLogging(logging => logging
                         .AddOtlpExporter(o =>
                         {
                             o.Endpoint = new Uri(otlpEndpoint);
